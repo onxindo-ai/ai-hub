@@ -1,0 +1,44 @@
+{
+  "version": "1.1.0",
+  "workspaceRoot": "..",
+  "boardFile": "",
+  "slots": {
+    "orchestrator": {
+      "label": "主力",
+      "description": "跟你直接对话、动脑子定方案、最终拍板汇报。",
+      "adapter": "native-orchestrator",
+      "accepts": ["orchestrator"],
+      "hotSwappable": true
+    },
+    "worker": {
+      "label": "黑奴",
+      "description": "只干便宜的体力活和批量整理，不干考验智商的活。",
+      "adapter": "deepseek-dsh",
+      "accepts": ["cli-worker"],
+      "hotSwappable": true
+    },
+    "reviewer": {
+      "label": "监工",
+      "description": "独立检查黑奴干完的活，过关了才把精炼结果报给主力。",
+      "adapter": "native-subagent",
+      "accepts": ["subagent", "cli-worker"],
+      "hotSwappable": true
+    },
+    "secretary": {
+      "label": "秘书",
+      "description": "出门在外用手机看进度、记口头交代，随时可拔掉停费。",
+      "adapter": "grok-bot",
+      "accepts": ["secretary", "none"],
+      "hotSwappable": true
+    }
+  },
+  "handover": {
+    "defaultModel": "pro",
+    "autoArchiveOld": true,
+    "thresholds": {
+      "toolCalls": 35,
+      "largeFiles": 6,
+      "deepTurns": 20
+    }
+  }
+}

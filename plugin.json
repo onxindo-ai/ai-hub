@@ -1,0 +1,12 @@
+{
+  "name": "ai-hub",
+  "displayName": "多AI中枢 · Modular AI Hub",
+  "version": "1.0.0",
+  "description": "Modular multi-AI orchestration hub with hot-swappable role slots (DeepSeek, Codex, Claude, Gemini, mobile secretary), zero-relay headless dispatch, and seamless conversation handover.",
+  "logo": "assets/logo.svg",
+  "suggestedPrompts": [
+    "打开多AI中枢面板查看当前插槽状态",
+    "把批量体力外包槽从 DeepSeek 热插拔换成 Codex",
+    "把当前对话进度落盘并一键无感换新对话"
+  ]
+}

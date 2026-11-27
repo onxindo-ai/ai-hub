@@ -1,0 +1,12 @@
+{
+  "id": "native-orchestrator",
+  "name": "当前主力",
+  "vendor": "当前对话 AI",
+  "icon": "🧠",
+  "kind": "orchestrator",
+  "tier": "high-iq",
+  "billing": "跟随当前客户端",
+  "summary": "你正在用的主力 AI（换 Claude、Codex 或反重力都能无缝接上）。",
+  "capabilities": ["planning", "high-iq", "tool-use", "handover"],
+  "detect": { "type": "always-ready" }
+}

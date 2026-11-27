@@ -1,0 +1,13 @@
+# Local runtime data & personal state (never push to GitHub)
+runtime/
+config/slots.json
+.env
+*.env
+*.local.json
+.DS_Store
+node_modules/
+ui-src/node_modules/
+macos/*.app/
+macos/build/
+*.log
+*.bak*

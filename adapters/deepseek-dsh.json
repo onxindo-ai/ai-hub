@@ -1,0 +1,21 @@
+{
+  "id": "deepseek-dsh",
+  "name": "DeepSeek",
+  "vendor": "DeepSeek",
+  "icon": "🐳",
+  "kind": "cli-worker",
+  "tier": "bulk-low-cost",
+  "billing": "余额按量 · 极便宜",
+  "summary": "最省钱的体力担当：适合批量扫文件、洗日志、按模板整理表格。",
+  "capabilities": ["bulk-files", "long-context", "headless", "session-resume"],
+  "detect": {
+    "type": "binary-and-env",
+    "binaries": [
+      "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh",
+      "dsh"
+    ],
+    "requiredEnv": ["DEEPSEEK_API_KEY"],
+    "envFiles": ["~/.dsh/deepseek_api_key.env"]
+  },
+  "runner": "deepseek-dsh"
+}

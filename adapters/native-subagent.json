@@ -1,0 +1,12 @@
+{
+  "id": "native-subagent",
+  "name": "主力分身",
+  "vendor": "内置子代理",
+  "icon": "🛡️",
+  "kind": "subagent",
+  "tier": "high-iq",
+  "billing": "跟随主力额度",
+  "summary": "另开干净窗口帮忙审稿、查资料，不把杂物带回主对话。",
+  "capabilities": ["review", "research", "web-search", "isolated-context"],
+  "detect": { "type": "always-ready" }
+}

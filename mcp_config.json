@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "hub": {
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/bin/mcp-server.mjs"],
+      "env": {
+        "AI_HUB_ROOT": "${PLUGIN_ROOT}"
+      }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "id": "codex-cli",
+  "name": "Codex",
+  "vendor": "OpenAI",
+  "icon": "⚡",
+  "kind": "cli-worker",
+  "tier": "high-iq",
+  "billing": "Codex 额度",
+  "summary": "高智商选手：适合复杂代码任务，或插到监工位做跨模型把关。",
+  "capabilities": ["coding", "high-iq", "review", "headless", "sandbox"],
+  "detect": {
+    "type": "binary",
+    "binaries": ["codex", "~/.local/bin/codex", "/opt/homebrew/bin/codex", "/usr/local/bin/codex"]
+  },
+  "runner": "codex-cli"
+}

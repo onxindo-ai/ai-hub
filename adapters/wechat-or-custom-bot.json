@@ -1,0 +1,13 @@
+{
+  "id": "wechat-or-custom-bot",
+  "name": "微信 / 自定义秘书",
+  "vendor": "自建通道",
+  "icon": "💬",
+  "kind": "secretary",
+  "tier": "secretary",
+  "billing": "免费自建",
+  "summary": "停用 Grok 后的替代秘书，读同一份进度简报就能直接上岗。",
+  "capabilities": ["mobile-relay", "file-briefing"],
+  "detect": { "type": "always-ready" },
+  "runner": "passive-file-relay"
+}

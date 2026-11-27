@@ -1,0 +1,17 @@
+{
+  "id": "my-custom-cli",
+  "name": "自定义 CLI 模型示例",
+  "vendor": "Custom / Ollama / OpenRouter",
+  "icon": "🧩",
+  "kind": "cli-worker",
+  "tier": "bulk-low-cost",
+  "billing": "自定义",
+  "summary": "复制本文件并改名为 <id>.json（去掉 .example），即可把任意本地或云端命令行模型插进卡槽。",
+  "capabilities": ["headless", "custom"],
+  "detect": {
+    "type": "binary",
+    "binaries": ["my-cli"]
+  },
+  "runner": "custom-command",
+  "commandTemplate": ["my-cli", "--prompt", "{{PROMPT}}"]
+}

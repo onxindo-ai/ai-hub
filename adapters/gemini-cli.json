@@ -1,0 +1,16 @@
+{
+  "id": "gemini-cli",
+  "name": "Gemini",
+  "vendor": "Google",
+  "icon": "✨",
+  "kind": "cli-worker",
+  "tier": "balanced",
+  "billing": "独立额度",
+  "summary": "不占反重力 5 小时额度，适合查资料与大段内容整理。",
+  "capabilities": ["web-search", "long-context", "headless"],
+  "detect": {
+    "type": "binary",
+    "binaries": ["gemini", "~/.local/bin/gemini", "/opt/homebrew/bin/gemini", "/usr/local/bin/gemini"]
+  },
+  "runner": "gemini-cli"
+}

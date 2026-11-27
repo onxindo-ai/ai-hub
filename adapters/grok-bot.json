@@ -1,0 +1,16 @@
+{
+  "id": "grok-bot",
+  "name": "手机秘书 (Grok)",
+  "vendor": "手机秘书",
+  "icon": "🌑",
+  "kind": "secretary",
+  "tier": "secretary",
+  "billing": "包月 · 随时可拔",
+  "summary": "出门在外用手机问进度、下口头指令；不续费直接拔掉换微信。",
+  "capabilities": ["mobile-relay", "x-realtime", "file-briefing"],
+  "detect": {
+    "type": "app-bundle",
+    "paths": ["/Applications/Grok Bot.app"]
+  },
+  "runner": "passive-file-relay"
+}

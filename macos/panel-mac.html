@@ -1,0 +1,1706 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>多AI中枢</title>
+  <style>
+    :root {
+      --bg-canvas: #f6f7f9;
+      --bg-card: #ffffff;
+      --bg-subtle: #f1f3f7;
+      --bg-hover: #f8f9fb;
+      --line: #e6e9f0;
+      --line-strong: #d4d9e3;
+      --fg-1: #18181b;
+      --fg-2: #52525b;
+      --fg-3: #8b93a1;
+      --emerald: #10b981;
+      --amber: #d97706;
+      --coral: #dc2626;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --primary-soft: #eff6ff;
+      --radius-lg: 13px;
+      --radius-md: 9px;
+      --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.035);
+      --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    button, .pri-wrap, .team-strip { -webkit-user-select: none; user-select: none; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      min-height: 100%;
+      background: var(--bg-canvas);
+      color: var(--fg-1);
+      font-family: var(--font);
+      font-size: 13px;
+      line-height: 1.5;
+      font-variant-numeric: tabular-nums;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    input, textarea {
+      -webkit-user-select: text;
+      user-select: text;
+      cursor: text;
+      caret-color: var(--primary);
+    }
+
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(15, 23, 42, 0.13); border-radius: 999px; }
+
+    .shell {
+      display: flex;
+      flex-direction: column;
+      min-height: calc(100vh - 2px);
+      padding: 10px 14px 9px;
+      gap: 10px;
+    }
+
+    .main-scroll {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      flex: 1;
+    }
+
+    /* Ultra-clean Top Bar */
+    .hud-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 1px 2px;
+    }
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-width: 0;
+    }
+    .orb {
+      width: 7.5px;
+      height: 7.5px;
+      border-radius: 50%;
+      background: var(--emerald);
+      flex-shrink: 0;
+    }
+    .orb.busy {
+      background: #f59e0b;
+      box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.22);
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .brand-title {
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: -0.015em;
+    }
+    .busy-pill {
+      font-size: 10.5px;
+      font-weight: 600;
+      padding: 1px 7px;
+      border-radius: 999px;
+      background: #fffbeb;
+      color: var(--amber);
+      border: 1px solid rgba(245, 158, 11, 0.28);
+    }
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* Buttons */
+    button {
+      font-family: inherit;
+      font-size: 11.5px;
+      color: var(--fg-2);
+      background: var(--bg-card);
+      border: 1px solid var(--line);
+      border-radius: 7.5px;
+      padding: 4px 8.5px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+      transition: all 0.12s ease;
+    }
+    button:hover:not(:disabled) {
+      background: var(--bg-subtle);
+      color: var(--fg-1);
+      border-color: var(--line-strong);
+    }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    button.primary {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #ffffff;
+      font-weight: 600;
+      padding: 5px 14px;
+    }
+    button.primary:hover:not(:disabled) {
+      background: var(--primary-hover);
+      border-color: var(--primary-hover);
+      color: #ffffff;
+    }
+    button.ghost {
+      background: transparent;
+      border-color: transparent;
+      color: var(--fg-3);
+      padding: 3px 6px;
+    }
+    button.ghost:hover:not(:disabled) {
+      background: rgba(15, 23, 42, 0.05);
+      color: var(--fg-1);
+      border-color: transparent;
+    }
+    button.active-chip {
+      background: var(--primary-soft);
+      border-color: rgba(37, 99, 235, 0.25);
+      color: var(--primary);
+      font-weight: 600;
+    }
+    button.danger-confirm {
+      background: #ef4444;
+      border-color: #ef4444;
+      color: #fff;
+      font-weight: 600;
+      padding: 2px 8px;
+      font-size: 11px;
+    }
+
+    /* Crisp White Card */
+    .hud-card {
+      background: var(--bg-card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-card);
+      overflow: hidden;
+    }
+    .card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 7px 12px 6px;
+      border-bottom: 1px solid #f2f4f8;
+    }
+    .card-title {
+      font-size: 11.5px;
+      font-weight: 700;
+      color: var(--fg-3);
+    }
+
+    /* Running Job Strip */
+    .job-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 7px 11px;
+      border-radius: var(--radius-md);
+      background: var(--primary-soft);
+      border: 1px solid rgba(37, 99, 235, 0.2);
+      color: #1e40af;
+      font-size: 12px;
+    }
+
+    /* Tracks List */
+    .track-item {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 9px 12px;
+      border-bottom: 1px solid #f3f5f8;
+      cursor: pointer;
+      transition: background 0.12s ease;
+    }
+    .track-item:last-child { border-bottom: none; }
+    .track-item:hover { background: var(--bg-hover); }
+    .track-item.editing { cursor: default; background: var(--bg-hover); }
+
+    /* Priority Pill */
+    .pri-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+    .pri-badge {
+      font-size: 10.5px;
+      font-weight: 700;
+      padding: 2px 6px;
+      min-width: 38px;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      transition: box-shadow 0.12s ease;
+    }
+    .pri-badge.P0 { background: #fef2f2; color: var(--coral); }
+    .pri-badge.P1 { background: #fffbeb; color: #b45309; }
+    .pri-badge.P2 { background: var(--primary-soft); color: #1d4ed8; }
+    .pri-badge.P3 { background: var(--bg-subtle); color: #6b7280; }
+    .pri-wrap:hover .pri-badge { box-shadow: 0 0 0 1.5px currentColor; }
+    .pri-caret { font-size: 8px; opacity: 0.6; }
+    .pri-select {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      cursor: pointer;
+      appearance: none;
+      -webkit-appearance: none;
+      border: none;
+    }
+
+    .track-body {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+    .track-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--fg-1);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .track-hint {
+      font-size: 11px;
+      color: var(--fg-3);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .row-tools {
+      display: flex;
+      align-items: center;
+      gap: 1px;
+      flex-shrink: 0;
+    }
+    .hover-tool { opacity: 0; transition: opacity 0.12s ease; }
+    .track-item:hover .hover-tool { opacity: 1; }
+    .chev { color: #cbd5e1; font-size: 14px; padding-left: 3px; }
+
+    /* Minimal Composer */
+    .composer-card {
+      background: var(--bg-card);
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-card);
+      transition: border-color 0.14s ease, box-shadow 0.14s ease;
+      overflow: hidden;
+    }
+    .composer-card:focus-within {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.11);
+    }
+    textarea.composer-box {
+      display: block;
+      width: 100%;
+      min-height: 58px;
+      max-height: 145px;
+      resize: vertical;
+      border: none;
+      outline: none;
+      background: #ffffff;
+      color: var(--fg-1);
+      font-family: inherit;
+      font-size: 13px;
+      line-height: 1.55;
+      padding: 11px 13px 7px;
+    }
+    textarea.composer-box::placeholder { color: var(--fg-3); }
+    .composer-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      padding: 6px 9px;
+      background: #fafbfc;
+      border-top: 1px solid #f0f2f6;
+      flex-wrap: nowrap;
+    }
+    .composer-sub {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      padding: 4px 10px 5px;
+      background: #ffffff;
+      border-top: 1px solid #f3f5f8;
+      font-size: 11px;
+      color: var(--fg-3);
+      min-height: 28px;
+    }
+    .seg-group {
+      display: inline-flex;
+      align-items: center;
+      background: var(--bg-subtle);
+      border-radius: 8px;
+      padding: 2px;
+      gap: 2px;
+    }
+    .seg-btn {
+      border: none;
+      background: transparent;
+      color: var(--fg-2);
+      font-size: 11.5px;
+      font-weight: 500;
+      padding: 3.5px 9px;
+      border-radius: 6px;
+    }
+    .seg-btn:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.65);
+      color: var(--fg-1);
+    }
+    .seg-btn.active {
+      background: #ffffff;
+      color: var(--primary);
+      font-weight: 600;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+    }
+    .track-mini-select {
+      font-family: inherit;
+      font-size: 11.5px;
+      color: var(--fg-2);
+      background: transparent;
+      border: none;
+      border-radius: 6px;
+      padding: 2px 5px;
+      max-width: 145px;
+      outline: none;
+      cursor: pointer;
+    }
+    .track-mini-select:hover { background: var(--bg-subtle); }
+    .session-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      color: #059669;
+      font-weight: 600;
+    }
+    .handover-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 11px;
+      border-radius: var(--radius-md);
+      background: #fffbeb;
+      border: 1px solid rgba(217, 119, 6, 0.34);
+      color: #92400e;
+      font-size: 12px;
+    }
+    .handover-sub {
+      font-size: 11px;
+      color: #b45309;
+      margin-top: 1px;
+    }
+    .handover-ready-banner {
+      padding: 7px 11px;
+      border-radius: var(--radius-md);
+      background: #ecfdf5;
+      border: 1px solid rgba(16, 185, 129, 0.25);
+      color: #065f46;
+      font-size: 11.5px;
+    }
+
+    /* Clean Reply Card */
+    .feed-row {
+      padding: 9px 12px;
+      border-bottom: 1px solid #f3f5f8;
+    }
+    .feed-row:last-child { border-bottom: none; }
+    .feed-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      margin-bottom: 4px;
+      font-size: 11px;
+      color: var(--fg-3);
+    }
+    .role-tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 1px 6px;
+      border-radius: 5px;
+      background: var(--bg-subtle);
+      color: var(--fg-2);
+      font-size: 10.5px;
+      font-weight: 600;
+    }
+    .feed-text {
+      font-size: 12.5px;
+      color: var(--fg-1);
+      line-height: 1.58;
+      white-space: pre-line;
+      word-break: break-word;
+    }
+
+    /* Whisper-light Team Row */
+    .team-strip {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 7px 12px;
+      cursor: pointer;
+      transition: background 0.12s ease;
+    }
+    .team-strip:hover { background: var(--bg-hover); }
+    .slot-inline-list {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      font-size: 11.5px;
+      color: var(--fg-2);
+    }
+    .slot-inline-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .sdot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .sdot.ready { background: var(--emerald); }
+    .sdot.missing_key { background: #f59e0b; }
+    .sdot.not_installed, .sdot.empty { background: #cbd5e1; }
+
+    .slots-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+      padding: 9px 10px 10px;
+      border-top: 1px solid #f2f4f8;
+      background: #fafbfc;
+    }
+    .slot-box {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--bg-card);
+      padding: 8px 9px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .slot-box.picking {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+    }
+    .picker-panel {
+      margin: 0 10px 10px;
+      padding: 9px;
+      border-radius: 10px;
+      background: var(--bg-card);
+      border: 1px solid rgba(37, 99, 235, 0.28);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .cand-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      background: var(--bg-hover);
+      border: 1px solid var(--line);
+    }
+
+    /* Detail View */
+    .kv-row {
+      display: grid;
+      grid-template-columns: 44px 1fr;
+      gap: 10px;
+      padding: 9px 12px;
+      border-bottom: 1px solid #f2f4f8;
+      align-items: baseline;
+    }
+    .kv-row:last-child { border-bottom: none; }
+    .kv-row.highlight {
+      background: var(--primary-soft);
+      border-left: 3px solid var(--primary);
+      padding-left: 9px;
+    }
+    .kv-key { font-size: 11px; font-weight: 600; color: var(--fg-3); }
+    .kv-row.highlight .kv-key { color: var(--primary); font-weight: 700; }
+    .kv-val { font-size: 12.5px; color: var(--fg-1); line-height: 1.55; word-break: break-word; }
+
+    /* Drawers & Inputs */
+    .drawer-card {
+      background: var(--bg-card);
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-lg);
+      padding: 10px 12px;
+      box-shadow: var(--shadow-card);
+    }
+    label.flabel {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--fg-2);
+      margin: 7px 0 3px;
+    }
+    input.finput, select.finput {
+      width: 100%;
+      font-family: inherit;
+      font-size: 12.5px;
+      color: var(--fg-1);
+      background: #ffffff;
+      border: 1px solid var(--line-strong);
+      border-radius: 7px;
+      padding: 5.5px 8px;
+      outline: none;
+    }
+    input.finput:focus, select.finput:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+    }
+    pre.raw-box {
+      margin: 7px 0 0;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: var(--bg-subtle);
+      border: 1px solid var(--line);
+      color: var(--fg-2);
+      font-size: 11px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 190px;
+      overflow: auto;
+    }
+    .file-chip {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--bg-subtle);
+      border: 1px solid var(--line);
+      color: var(--fg-2);
+    }
+
+    /* Minimal Footer */
+    .hud-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 3px 2px 0;
+      font-size: 11px;
+      color: var(--fg-3);
+      gap: 8px;
+    }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 34px;
+      transform: translate(-50%, 8px);
+      background: #18181b;
+      color: #ffffff;
+      padding: 6px 13px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.16s ease;
+      z-index: 999;
+      white-space: nowrap;
+      max-width: 90%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  </style>
+</head>
+<body>
+  <div id="app" class="shell">
+    <div style="padding:24px;color:var(--fg-3);text-align:center">正在加载多AI中枢…</div>
+  </div>
+  <div id="toast" class="toast"></div>
+
+  <script type="module">
+    const PRIORITY_OPTIONS = [
+      { value: 'P0', label: '紧急' },
+      { value: 'P1', label: '重要' },
+      { value: 'P2', label: '常规' },
+      { value: 'P3', label: '暂缓' },
+    ];
+
+    const state = {
+      hub: null,
+      dockedTop: true,
+      pinned: true,
+      activeTrackId: null,
+      trackShowBg: false,
+      trackEditMeta: false,
+      renamingTrackId: null,
+      renameDraft: '',
+      confirmDeleteTrackId: null,
+      dest: 'main',        // 'main' | 'worker'
+      homeTrackId: '',
+      commandText: '',
+      trackInputText: '',
+      openDrawer: null,    // null | 'history' | 'add-track'
+      teamExpanded: false,
+      pickingSlotId: null,
+      expandedResults: {},
+      resultBodies: {},
+      busy: false,
+    };
+
+    window.__onMacWindowMode = (info) => {
+      if (!info) return;
+      const nextDocked = info.dockedTop !== undefined ? Boolean(info.dockedTop) : !Boolean(info.detached);
+      const changed = state.dockedTop !== nextDocked || state.pinned !== Boolean(info.pinned);
+      state.dockedTop = nextDocked;
+      state.pinned = Boolean(info.pinned);
+      if (changed) render();
+    };
+
+    function notifyMacHost(payload) {
+      try {
+        if (window.webkit?.messageHandlers?.macHost) {
+          window.webkit.messageHandlers.macHost.postMessage(payload);
+          return true;
+        }
+      } catch {}
+      return false;
+    }
+
+    function showToast(msg) {
+      const el = document.getElementById('toast');
+      if (!el) return;
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(showToast._t);
+      showToast._t = setTimeout(() => el.classList.remove('show'), 2200);
+    }
+
+    function esc(s) {
+      return String(s ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;');
+    }
+
+    function priorityRank(p) {
+      const m = String(p || '').toUpperCase().match(/^P(\d+)$/);
+      return m ? Number(m[1]) : 99;
+    }
+
+    function sortTracks(tracks) {
+      return [...(tracks || [])].sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority));
+    }
+
+    function priorityLabel(p) {
+      const hit = PRIORITY_OPTIONS.find((o) => o.value === p);
+      return hit ? `${hit.value}（${hit.label}）` : String(p || '');
+    }
+
+    function getMainName(hub) {
+      return hub?.slots?.find((s) => s.id === 'orchestrator')?.label || '主力';
+    }
+
+    function getWorkerName(hub) {
+      return hub?.slots?.find((s) => s.id === 'worker')?.mounted?.name
+        || hub?.slots?.find((s) => s.id === 'worker')?.label
+        || '黑奴';
+    }
+
+    function shortTime(ts) {
+      const m = String(ts || '').trim().match(/^\d{4}-(\d{2}-\d{2})\s+(\d{2}:\d{2})/);
+      return m ? `${m[1]} ${m[2]}` : String(ts || '');
+    }
+
+    function relPath(p, root) {
+      const s = String(p || '');
+      return root && s.startsWith(root + '/') ? s.slice(root.length + 1) : s;
+    }
+
+    function plainConclusion(rawText) {
+      let s = String(rawText || '').trim();
+      if (!s) return '已完成，详情见原稿。';
+      const cut = s.search(/(?:^|\n|\s)(?:#{2,3}\s*(?:一、|二、|三、|过程|详细|说明|核对|技术)|【(?:过程|详细记录[^】]*|技术细节)】|(?:过程|详细记录)[：:])/);
+      if (cut > 0) s = s.slice(0, cut);
+      const m = s.match(/(?:【(?:人话结论|一句话结论|结论)】|\*\*(?:人话结论|先给结论|结论)\*\*[：:]?|(?:人话结论|先给结论|结论)[：:])\s*([\s\S]+)/);
+      if (m) s = m[1];
+      const lines = s
+        .split(/\r?\n/)
+        .filter((l) => !/^\s*\|.*\|\s*$/.test(l) && !/^\s*---+\s*$/.test(l) && !/^\s*```/.test(l))
+        .map((l) => l.replace(/^#+\s*/, '').replace(/^\s*[-*•]\s+/, '').replace(/\*\*/g, '').replace(/`/g, '').trim())
+        .filter(Boolean);
+      const out = lines.slice(0, 6).join('\n');
+      return out.length > 420 ? out.slice(0, 419) + '…' : (out || '已完成。');
+    }
+
+    async function api(url, body = null) {
+      const res = await fetch(url, body ? {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      } : {});
+      const data = await res.json();
+      if (!res.ok || data.ok === false) {
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      return data;
+    }
+
+    async function activateOpenIDE() {
+      if (!notifyMacHost({ type: 'activateIDE' })) {
+        await api('/api/activate-ide', {});
+      }
+    }
+
+    let pollTimer = null;
+    let tickTimer = null;
+
+    function syncBadgeAndPolling() {
+      const jobs = state.hub?.activeJobs || [];
+      notifyMacHost({ type: 'badge', activeCount: jobs.length });
+
+      if (jobs.length > 0 && !pollTimer) {
+        pollTimer = setInterval(async () => {
+          try {
+            const prevIds = new Set((state.hub?.results || []).map((r) => r.id));
+            const data = await api('/api/status');
+            state.hub = data.status;
+            const newest = (state.hub.results || []).find((r) => !prevIds.has(r.id));
+            if (newest) showToast(`✅ ${newest.by || 'AI'} 已回复`);
+            syncBadgeAndPolling();
+            if (!document.activeElement || !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+              render();
+            }
+          } catch {}
+        }, 2200);
+      } else if (jobs.length === 0 && pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+
+      if (jobs.length > 0 && !tickTimer) {
+        tickTimer = setInterval(() => {
+          document.querySelectorAll('[data-started-ms]').forEach((el) => {
+            const ms = Number(el.dataset.startedMs || Date.now());
+            el.textContent = `${Math.max(1, Math.round((Date.now() - ms) / 1000))}s`;
+          });
+        }, 1000);
+      } else if (jobs.length === 0 && tickTimer) {
+        clearInterval(tickTimer);
+        tickTimer = null;
+      }
+    }
+
+    async function refreshStatus(silent = false) {
+      try {
+        if (!silent) { state.busy = true; render(); }
+        const data = await api('/api/status');
+        state.hub = data.status;
+        syncBadgeAndPolling();
+      } catch (e) {
+        showToast(`刷新失败：${e.message}`);
+      } finally {
+        state.busy = false;
+        const activeId = document.activeElement?.id;
+        const selStart = document.activeElement?.selectionStart;
+        const selEnd = document.activeElement?.selectionEnd;
+        render();
+        if (activeId) {
+          const el = document.getElementById(activeId);
+          if (el) {
+            el.focus();
+            if (typeof selStart === 'number' && typeof el.setSelectionRange === 'function') {
+              try { el.setSelectionRange(selStart, selEnd ?? selStart); } catch {}
+            }
+          }
+        }
+      }
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) refreshStatus(true);
+    });
+
+    function renderPriorityBadge(track) {
+      const cur = track.priority || 'P1';
+      const opts = PRIORITY_OPTIONS.some((o) => o.value === cur)
+        ? PRIORITY_OPTIONS
+        : [{ value: cur, label: '当前' }, ...PRIORITY_OPTIONS];
+      return `
+        <span class="pri-wrap" data-stop title="切换紧急程度">
+          <span class="pri-badge ${esc(cur)}">${esc(cur)}<span class="pri-caret">▾</span></span>
+          <select class="pri-select" data-action="change-pri" data-id="${esc(track.id)}" data-title="${esc(track.title)}">
+            ${opts.map((o) => `<option value="${esc(o.value)}" ${o.value === cur ? 'selected' : ''}>${esc(o.value)} · ${esc(o.label)}</option>`).join('')}
+          </select>
+        </span>
+      `;
+    }
+
+    async function updatePriority(trackId, priority, title) {
+      try {
+        const data = await api('/api/track/update', { trackId, priority });
+        state.hub = data.status;
+        showToast(`已调为 ${priorityLabel(priority)}`);
+        render();
+      } catch (e) {
+        showToast(`修改失败：${e.message}`);
+      }
+    }
+
+    async function saveInlineRename(trackId) {
+      const inp = document.getElementById('rename-inp');
+      const next = (inp ? inp.value : state.renameDraft).trim();
+      if (!next) { showToast('名称不能为空'); inp?.focus(); return; }
+      try {
+        const data = await api('/api/track/update', { trackId, title: next });
+        state.hub = data.status;
+        state.renamingTrackId = null;
+        state.renameDraft = '';
+        showToast(`已改名为「${next}」`);
+        render();
+      } catch (e) {
+        showToast(`改名失败：${e.message}`);
+      }
+    }
+
+    let delTimer = null;
+    async function handleDeleteTrack(trackId, title) {
+      if (state.confirmDeleteTrackId !== trackId) {
+        state.confirmDeleteTrackId = trackId;
+        clearTimeout(delTimer);
+        delTimer = setTimeout(() => {
+          if (state.confirmDeleteTrackId === trackId) {
+            state.confirmDeleteTrackId = null;
+            render();
+          }
+        }, 3800);
+        render();
+        return;
+      }
+      clearTimeout(delTimer);
+      state.confirmDeleteTrackId = null;
+      try {
+        const data = await api('/api/track/delete', { trackId });
+        state.hub = data.status;
+        if (state.activeTrackId === trackId) state.activeTrackId = null;
+        if (state.homeTrackId === trackId) state.homeTrackId = '';
+        showToast(`已删除「${title}」`);
+        render();
+      } catch (e) {
+        showToast(`删除失败：${e.message}`);
+      }
+    }
+
+    async function deleteResultItem(id) {
+      try {
+        const data = await api('/api/result/delete', { id });
+        state.hub = data.status;
+        delete state.expandedResults[id];
+        showToast('已删除记录');
+        render();
+      } catch (e) {
+        showToast(`删除失败：${e.message}`);
+      }
+    }
+
+    async function handleSend(scopedTrack = null) {
+      const hub = state.hub;
+      const mainName = getMainName(hub);
+      const workerName = getWorkerName(hub);
+      const inputEl = document.getElementById(scopedTrack ? 'track-input' : 'home-input');
+      const raw = (inputEl ? inputEl.value : (scopedTrack ? state.trackInputText : state.commandText)).trim();
+      const targetTrack = scopedTrack || (hub.tracks || []).find((t) => t.id === state.homeTrackId) || null;
+
+      if (!raw) {
+        showToast(state.dest === 'main' ? `写一句要交代给${mainName}的事` : `写清楚要${workerName}干什么`);
+        inputEl?.focus();
+        return;
+      }
+
+      if (scopedTrack) state.trackInputText = ''; else state.commandText = '';
+      state.busy = true;
+      render();
+
+      try {
+        if (state.dest === 'main') {
+          const data = await api('/api/ask-main', {
+            prompt: raw,
+            trackId: targetTrack ? targetTrack.id : null,
+            trackTitle: targetTrack ? targetTrack.title : '',
+          });
+          state.hub = data.status;
+          syncBadgeAndPolling();
+        } else {
+          const context = targetTrack
+            ? [`主线名称：${targetTrack.title}`, targetTrack.goal ? `目标：${targetTrack.goal}` : '', targetTrack.latest ? `当前进度：${targetTrack.latest}` : ''].filter(Boolean).join('\n')
+            : '';
+          const data = await api('/api/dispatch-worker', {
+            title: targetTrack ? `${targetTrack.title.slice(0, 12)} · 回复` : raw.slice(0, 18),
+            prompt: raw,
+            context,
+            trackId: targetTrack ? targetTrack.id : null,
+          });
+          state.hub = data.status;
+          syncBadgeAndPolling();
+        }
+      } catch (e) {
+        showToast(`发送失败：${e.message}`);
+      } finally {
+        state.busy = false;
+        render();
+      }
+    }
+
+    async function toggleRawResult(id, filePath, runtimeRelPath) {
+      if (state.expandedResults[id]) {
+        delete state.expandedResults[id];
+        render();
+        return;
+      }
+      if (runtimeRelPath) {
+        if (!state.resultBodies[id]) {
+          try {
+            const data = await api('/api/runtime-file', { relPath: runtimeRelPath });
+            const raw = data.file?.content || '';
+            const idx = raw.indexOf('## 执行产出');
+            state.resultBodies[id] = idx >= 0 ? raw.slice(idx + '## 执行产出'.length).trim() : raw;
+          } catch (e) {
+            showToast(`读取失败：${e.message}`);
+            return;
+          }
+        }
+        state.expandedResults[id] = true;
+        render();
+        return;
+      }
+      if (filePath) {
+        try {
+          await api('/api/reveal-file', { path: filePath });
+          showToast('已在访达定位');
+        } catch {
+          try { await navigator.clipboard.writeText(filePath); showToast('已复制路径'); } catch {}
+        }
+      }
+    }
+
+    function renderComposer(hub, scopedTrack = null) {
+      const mainName = getMainName(hub);
+      const workerReady = Boolean(hub.slots.find((s) => s.id === 'worker')?.mounted?.status === 'ready');
+      if (state.dest === 'worker' && !workerReady) state.dest = 'main';
+
+      const tracks = sortTracks(hub.tracks || []);
+      const channelKey = scopedTrack ? scopedTrack.id : (state.homeTrackId || 'general');
+      const curSession = (hub.desktopSessions || {})[channelKey] || null;
+      const hasActiveConv = Boolean(curSession && curSession.conversationId);
+      const tokK = curSession?.inputTokens ? ` · ${Math.max(1, Math.round(curSession.inputTokens / 1000))}k` : '';
+      const showHandoverBanner = Boolean(state.dest === 'main' && hasActiveConv && curSession?.suggestHandover);
+      const showReadyBanner = Boolean(state.dest === 'main' && !hasActiveConv && curSession?.pendingHandoverSummary);
+
+      const ph = {
+        main: hasActiveConv
+          ? `继续追问${mainName}（第 ${curSession.turns + 1} 轮，⌘+Enter）…`
+          : (showReadyBanner ? `已切新对话（带入刚才总结），直接聊…` : `交代给${mainName}（⌘+Enter 发送）…`),
+        worker: `派黑奴后台查文件或整理…`,
+      }[state.dest];
+
+      const val = scopedTrack ? state.trackInputText : state.commandText;
+
+      return `
+        ${showHandoverBanner ? `
+          <div class="handover-banner">
+            <div style="min-width:0">
+              <strong>建议切换干净新对话</strong>
+              <div class="handover-sub">${esc(curSession.suggestReason || '上下文较长')}（第 ${curSession.turns} 轮${tokK}）</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
+              <button class="primary" id="btn-do-handover" style="padding:4px 10px;font-size:11.5px" ${state.busy ? 'disabled' : ''}>一键交接换新</button>
+              <button class="ghost" id="btn-dismiss-handover" style="color:#b45309">暂不</button>
+            </div>
+          </div>
+        ` : ''}
+        ${showReadyBanner ? `
+          <div class="handover-ready-banner">✅ 已交接并切到新对话，下一句自动接续刚才进度</div>
+        ` : ''}
+        <div class="composer-card">
+          <textarea id="${scopedTrack ? 'track-input' : 'home-input'}" class="composer-box" placeholder="${esc(ph)}">${esc(val)}</textarea>
+          <div class="composer-bar">
+            <div class="seg-group">
+              <button class="seg-btn ${state.dest === 'main' ? 'active' : ''}" data-action="set-dest" data-dest="main">${esc(mainName)}</button>
+              ${workerReady ? `<button class="seg-btn ${state.dest === 'worker' ? 'active' : ''}" data-action="set-dest" data-dest="worker">黑奴</button>` : ''}
+            </div>
+            <button class="primary" id="btn-send" ${state.busy ? 'disabled' : ''}>发送</button>
+          </div>
+          ${(!scopedTrack || (state.dest === 'main' && hasActiveConv)) ? `
+            <div class="composer-sub">
+              <div>
+                ${!scopedTrack ? `
+                  <select id="home-track-sel" class="track-mini-select" title="归属到某条主线（每条主线独立续聊）">
+                    <option value="">随手聊</option>
+                    ${tracks.map((t) => `<option value="${esc(t.id)}" ${state.homeTrackId === t.id ? 'selected' : ''}>${esc(t.priority)} · ${esc(t.title)}</option>`).join('')}
+                  </select>
+                ` : ''}
+              </div>
+              ${(state.dest === 'main' && hasActiveConv) ? `
+                <div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
+                  <span class="session-pill">● 第 ${curSession.turns} 轮${tokK}</span>
+                  <button class="ghost" id="btn-do-handover-inline" style="font-size:10.5px;padding:1px 5px;color:var(--primary)" title="自动总结当前进度并切到新对话">换新</button>
+                </div>
+              ` : ''}
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }
+
+    function renderReplyRow(hub, r, showDelete = true) {
+      const mainName = getMainName(hub);
+      const open = Boolean(state.expandedResults[r.id]);
+      const f0 = (r.files && r.files[0]) || '';
+      return `
+        <div class="feed-row">
+          <div class="feed-meta">
+            <div>
+              <span class="role-tag">${esc(r.by || mainName)}</span>
+              <span style="margin-left:5px">${esc(shortTime(r.createdAt))}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:2px">
+              ${(r.runtimeRelPath || f0) ? `
+                <button class="ghost" data-action="open-res" data-id="${esc(r.id)}" data-file="${esc(f0)}" data-rel="${esc(r.runtimeRelPath || '')}">
+                  ${r.runtimeRelPath ? (open ? '收起' : '原稿') : '定位'}
+                </button>
+              ` : ''}
+              ${showDelete ? `<button class="ghost" data-action="del-res" data-id="${esc(r.id)}" title="删除这条记录">✕</button>` : ''}
+            </div>
+          </div>
+          <div class="feed-text">${esc(plainConclusion(r.summary))}</div>
+          ${open && state.resultBodies[r.id] ? `<pre class="raw-box">${esc(state.resultBodies[r.id])}</pre>` : ''}
+        </div>
+      `;
+    }
+
+    function renderDetailView(hub, track) {
+      const isRenaming = state.renamingTrackId === track.id;
+      const related = (hub.results || []).filter(
+        (r) => r.trackId === track.id || (r.title && r.title.includes(track.title.slice(0, 4)))
+      );
+      const trackJobs = (hub.activeJobs || []).filter((j) => j.trackId === track.id);
+
+      return `
+        <div class="main-scroll">
+          <div class="hud-top">
+            <button class="ghost" id="btn-back" style="color:var(--fg-1);font-weight:600;padding-left:2px">← 返回</button>
+            <div class="top-actions">
+              <button class="${state.trackShowBg ? 'active-chip' : ''}" id="btn-bg">背景</button>
+              <button class="${state.confirmDeleteTrackId === track.id ? 'danger-confirm' : 'ghost'}" id="btn-del-detail">
+                ${state.confirmDeleteTrackId === track.id ? '确认删' : '删除'}
+              </button>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:8px;padding:0 2px">
+            ${renderPriorityBadge(track)}
+            ${isRenaming ? `
+              <input id="rename-inp" class="finput" style="flex:1" value="${esc(state.renameDraft)}" />
+              <button class="primary" style="padding:4px 9px" data-action="save-rename" data-id="${esc(track.id)}">保存</button>
+              <button data-action="cancel-rename">取消</button>
+            ` : `
+              <div id="hero-title" style="font-size:15px;font-weight:700;cursor:pointer;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="点击重命名">${esc(track.title)}</div>
+              <button class="ghost" id="hero-edit-title" title="重命名">✎</button>
+            `}
+          </div>
+
+          <div class="hud-card">
+            <div class="card-head">
+              <span class="card-title">概览</span>
+              <button class="ghost" id="btn-edit-meta">${state.trackEditMeta ? '收起' : '编辑'}</button>
+            </div>
+            ${state.trackEditMeta ? `
+              <div style="padding:10px 12px">
+                <label class="flabel" style="margin-top:0">目标</label>
+                <input id="em-goal" class="finput" value="${esc(track.goal || track.title)}" />
+                <label class="flabel">进度</label>
+                <input id="em-latest" class="finput" value="${esc(track.latest || track.status || '')}" />
+                <label class="flabel">下一步</label>
+                <input id="em-next" class="finput" value="${esc(track.next || '')}" />
+                <div style="display:flex;justify-content:flex-end;gap:6px;margin-top:9px">
+                  <button id="btn-cancel-meta">取消</button>
+                  <button class="primary" id="btn-save-meta">保存</button>
+                </div>
+              </div>
+            ` : `
+              <div class="kv-row">
+                <div class="kv-key">目标</div>
+                <div class="kv-val">${esc(track.goal || track.title)}</div>
+              </div>
+              <div class="kv-row">
+                <div class="kv-key">进度</div>
+                <div class="kv-val" style="color:var(--fg-2)">${esc(track.latest || track.status || '暂无')}</div>
+              </div>
+              <div class="kv-row highlight">
+                <div class="kv-key">下一步</div>
+                <div class="kv-val" style="font-weight:600">${esc(track.next || '待定')}</div>
+              </div>
+            `}
+          </div>
+
+          ${state.trackShowBg ? `
+            <div class="drawer-card">
+              ${(track.details && track.details.length) ? track.details.map((g) => `
+                <div style="margin-bottom:8px">
+                  <div style="font-size:11px;font-weight:700;color:var(--fg-2);margin-bottom:3px">${esc(g.label)}</div>
+                  <ul style="margin:0;padding-left:15px;color:var(--fg-2);font-size:12px">
+                    ${g.items.map((it) => `<li style="margin-bottom:2px">${esc(it)}</li>`).join('')}
+                  </ul>
+                </div>
+              `).join('') : '<div style="color:var(--fg-3);font-size:12px">暂无背景补充</div>'}
+              ${(track.keyFiles && track.keyFiles.length) ? `
+                <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:8px;padding-top:7px;border-top:1px solid var(--line)">
+                  ${track.keyFiles.map((fp) => `<button class="file-chip" data-action="reveal" data-path="${esc(fp)}">${esc(fp)}</button>`).join('')}
+                </div>
+              ` : ''}
+            </div>
+          ` : ''}
+
+          ${trackJobs.map((j) => {
+            const secs = Math.max(1, Math.round((Date.now() - (j.startedAtMs || Date.now())) / 1000));
+            return `
+              <div class="job-banner">
+                <span>⏳ ${esc(j.adapterName)} 处理中…</span>
+                <span data-started-ms="${esc(j.startedAtMs || Date.now())}">${secs}s</span>
+              </div>
+            `;
+          }).join('')}
+
+          ${renderComposer(hub, track)}
+
+          ${related.length > 0 ? `
+            <div class="hud-card">
+              <div class="card-head">
+                <span class="card-title">本主线回复（${related.length}）</span>
+              </div>
+              ${related.slice(0, 6).map((r) => renderReplyRow(hub, r, true)).join('')}
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }
+
+    function renderDrawer(hub) {
+      if (state.openDrawer === 'add-track') {
+        return `
+          <div class="drawer-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <strong style="font-size:12.5px">新建主线</strong>
+              <button class="ghost" data-action="close-drawer">收起</button>
+            </div>
+            <div style="display:flex;gap:7px">
+              <div style="width:96px">
+                <label class="flabel" style="margin-top:0">紧急程度</label>
+                <select id="add-pri" class="finput">
+                  ${PRIORITY_OPTIONS.map((o) => `<option value="${esc(o.value)}" ${o.value === 'P1' ? 'selected' : ''}>${esc(o.value)} · ${esc(o.label)}</option>`).join('')}
+                </select>
+              </div>
+              <div style="flex:1">
+                <label class="flabel" style="margin-top:0">名称</label>
+                <input id="add-title" class="finput" placeholder="如：官网改版与文档整理" />
+              </div>
+            </div>
+            <label class="flabel">目标</label>
+            <input id="add-goal" class="finput" placeholder="一句话目标" />
+            <label class="flabel">下一步</label>
+            <input id="add-next" class="finput" placeholder="接下来先做什么" />
+            <div style="display:flex;justify-content:flex-end;margin-top:9px">
+              <button class="primary" id="btn-create-track">保存</button>
+            </div>
+          </div>
+        `;
+      }
+      if (state.openDrawer === 'history') {
+        const list = hub.results || [];
+        return `
+          <div class="drawer-card" style="padding:0;overflow:hidden">
+            <div class="card-head">
+              <span class="card-title">全部记录（${list.length}）</span>
+              <button class="ghost" data-action="close-drawer">收起</button>
+            </div>
+            ${list.length === 0 ? `<div style="color:var(--fg-3);padding:14px;text-align:center">暂无记录</div>` : `
+              <div style="max-height:280px;overflow:auto">
+                ${list.map((r) => renderReplyRow(hub, r, true)).join('')}
+              </div>
+            `}
+          </div>
+        `;
+      }
+      return '';
+    }
+
+    function renderPicker(hub) {
+      if (!state.pickingSlotId) return '';
+      const slot = hub.slots.find((s) => s.id === state.pickingSlotId);
+      if (!slot) return '';
+      const accepts = slot.accepts || [];
+      const cands = (hub.adapters || []).filter((a) => accepts.length === 0 || accepts.includes(a.kind));
+      return `
+        <div class="picker-panel">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:11.5px;font-weight:700">切换「${esc(slot.label)}」</span>
+            <button class="ghost" data-action="close-picker">取消</button>
+          </div>
+          ${cands.map((a) => {
+            const cur = slot.adapter === a.id;
+            return `
+              <div class="cand-row">
+                <div style="min-width:0">
+                  <div style="font-size:12px;font-weight:600">${esc(a.icon)} ${esc(a.name)} <span class="sdot ${esc(a.status)}" style="margin-left:4px"></span></div>
+                  <div style="font-size:10.5px;color:var(--fg-3)">${esc(a.summary)}</div>
+                </div>
+                ${cur
+                  ? `<span style="color:#059669;font-size:11px;font-weight:700;flex-shrink:0">在岗</span>`
+                  : `<button class="primary" style="padding:3px 9px" data-action="plug-slot" data-slot="${esc(slot.id)}" data-adapter="${esc(a.id)}">上岗</button>`}
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+    }
+
+    function renderFooter() {
+      return `
+        <div class="hud-foot">
+          <span>${state.dockedTop ? '吸顶中 · 拖离顶部变独立窗' : '独立窗 · 推至顶边自动收起'}</span>
+          <button class="ghost" id="btn-quit" style="font-size:10.5px">退出</button>
+        </div>
+      `;
+    }
+
+    function render() {
+      const root = document.getElementById('app');
+      if (!root || !state.hub) return;
+      const hub = state.hub;
+      const jobs = hub.activeJobs || [];
+      const tracks = sortTracks(hub.tracks || []);
+      const results = hub.results || [];
+
+      if (state.activeTrackId) {
+        const active = tracks.find((t) => t.id === state.activeTrackId);
+        if (active) {
+          root.innerHTML = `${renderDetailView(hub, active)}${renderFooter()}`;
+          bindCommon(active);
+          return;
+        }
+        state.activeTrackId = null;
+      }
+
+      root.innerHTML = `
+        <div class="main-scroll">
+          <!-- Quiet Top Bar -->
+          <div class="hud-top">
+            <div class="brand-group">
+              <span class="orb ${jobs.length ? 'busy' : ''}"></span>
+              <span class="brand-title">${esc(state.hub?.teamTitle || '多AI中枢')}</span>
+              ${jobs.length ? `<span class="busy-pill">处理中 · ${jobs.length}</span>` : ''}
+            </div>
+            <div class="top-actions">
+              ${state.dockedTop ? `
+                <button id="btn-free-win" title="也可以直接拖出顶部">独立窗</button>
+              ` : `
+                <button class="${state.pinned ? 'active-chip' : ''}" id="btn-pin">${state.pinned ? '置顶' : '普通'}</button>
+                <button id="btn-dock-top">吸顶</button>
+              `}
+              <button id="btn-open-ide" title="切到已打开的反重力主窗口">↗ 主窗</button>
+              <button id="btn-refresh" title="刷新">↻</button>
+            </div>
+          </div>
+
+          ${renderDrawer(hub)}
+
+          ${jobs.map((j) => {
+            const secs = Math.max(1, Math.round((Date.now() - (j.startedAtMs || Date.now())) / 1000));
+            return `
+              <div class="job-banner">
+                <span>⏳ <strong>${esc(j.adapterName)}</strong> 处理中「${esc(j.title)}」</span>
+                <span data-started-ms="${esc(j.startedAtMs || Date.now())}">${secs}s</span>
+              </div>
+            `;
+          }).join('')}
+
+          <!-- 1. Mainlines -->
+          <div class="hud-card">
+            <div class="card-head">
+              <span class="card-title">当前主线</span>
+              <button class="ghost" data-action="drawer" data-target="add-track" style="color:var(--primary);font-weight:600">+ 新建</button>
+            </div>
+            ${tracks.length === 0 ? `
+              <div style="padding:14px;text-align:center;color:var(--fg-3)">暂无主线</div>
+            ` : tracks.map((t) => {
+              if (state.renamingTrackId === t.id) {
+                return `
+                  <div class="track-item editing">
+                    ${renderPriorityBadge(t)}
+                    <input id="rename-inp" class="finput" style="flex:1" value="${esc(state.renameDraft)}" />
+                    <button class="primary" style="padding:3px 8px" data-action="save-rename" data-id="${esc(t.id)}">保存</button>
+                    <button data-action="cancel-rename">取消</button>
+                  </div>
+                `;
+              }
+              const confirmDel = state.confirmDeleteTrackId === t.id;
+              const subHint = t.next || t.latest || t.goal || '';
+              return `
+                <div class="track-item" data-action="open-track" data-id="${esc(t.id)}">
+                  ${renderPriorityBadge(t)}
+                  <div class="track-body">
+                    <div class="track-name">${esc(t.title)}</div>
+                    ${subHint ? `<div class="track-hint">${esc(subHint)}</div>` : ''}
+                  </div>
+                  <div class="row-tools">
+                    ${confirmDel ? `
+                      <button class="danger-confirm" data-action="del-track" data-id="${esc(t.id)}" data-title="${esc(t.title)}">确认删</button>
+                    ` : `
+                      <button class="ghost hover-tool" data-action="start-rename" data-id="${esc(t.id)}" data-title="${esc(t.title)}" title="重命名">✎</button>
+                      <button class="ghost hover-tool" data-action="del-track" data-id="${esc(t.id)}" data-title="${esc(t.title)}" title="删除">✕</button>
+                    `}
+                    <span class="chev">›</span>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+
+          <!-- 2. Minimal Composer -->
+          ${renderComposer(hub, null)}
+
+          <!-- 3. Single Latest Reply (History collapses into drawer) -->
+          ${results.length > 0 && state.openDrawer !== 'history' ? `
+            <div class="hud-card">
+              <div class="card-head">
+                <span class="card-title">最新回复</span>
+                ${results.length > 1 ? `<button class="ghost" data-action="drawer" data-target="history">全部 ${results.length} 条 ›</button>` : ''}
+              </div>
+              ${renderReplyRow(hub, results[0], true)}
+            </div>
+          ` : ''}
+
+          <!-- 4. Whisper-light Team Bar -->
+          <div class="hud-card">
+            <div class="team-strip" id="btn-team-toggle">
+              <div class="slot-inline-list">
+                ${hub.slots.map((s) => `
+                  <span class="slot-inline-item">
+                    <span class="sdot ${s.mounted ? esc(s.mounted.status) : 'empty'}"></span>
+                    <span>${s.mounted ? esc(s.mounted.name) : esc(s.label)}</span>
+                  </span>
+                `).join('')}
+              </div>
+              <span style="font-size:11px;color:var(--fg-3);flex-shrink:0">${state.teamExpanded ? '收起' : '班子 ▾'}</span>
+            </div>
+            ${state.teamExpanded ? `
+              <div class="slots-grid">
+                ${hub.slots.map((s) => {
+                  const m = s.mounted;
+                  const picking = state.pickingSlotId === s.id;
+                  return `
+                    <div class="slot-box ${picking ? 'picking' : ''}">
+                      <div style="display:flex;justify-content:space-between;align-items:center">
+                        <strong style="font-size:11.5px">${esc(s.label)}</strong>
+                        <span class="sdot ${m ? esc(m.status) : 'empty'}"></span>
+                      </div>
+                      <div style="font-size:12px;color:${m ? 'var(--fg-1)' : 'var(--fg-3)'}">
+                        ${m ? `${esc(m.icon)} ${esc(m.name)}` : '未插人'}
+                      </div>
+                      <div style="display:flex;justify-content:space-between;margin-top:auto">
+                        <button data-action="pick-slot" data-slot="${esc(s.id)}" style="padding:2px 8px;font-size:11px">
+                          ${picking ? '收起' : (m ? '换人' : '插上')}
+                        </button>
+                        ${m ? `<button class="ghost" data-action="unplug-slot" data-slot="${esc(s.id)}" style="font-size:11px">拔出</button>` : ''}
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+              ${renderPicker(hub)}
+            ` : ''}
+          </div>
+        </div>
+
+        ${renderFooter()}
+      `;
+
+      bindCommon(null);
+    }
+
+    function bindCommon(scopedTrack) {
+      document.querySelectorAll('select').forEach((sel) => {
+        sel.addEventListener('mousedown', () => notifyMacHost({ type: 'pauseAutoHide', ms: 3200 }));
+        sel.addEventListener('focus', () => notifyMacHost({ type: 'pauseAutoHide', ms: 3200 }));
+      });
+      document.querySelectorAll('[data-stop]').forEach((el) => {
+        el.addEventListener('click', (e) => e.stopPropagation());
+      });
+      document.querySelectorAll('[data-action="change-pri"]').forEach((sel) => {
+        sel.addEventListener('click', (e) => e.stopPropagation());
+        sel.addEventListener('change', (e) => {
+          e.stopPropagation();
+          updatePriority(sel.dataset.id, e.target.value, sel.dataset.title);
+        });
+      });
+
+      document.getElementById('btn-refresh')?.addEventListener('click', () => refreshStatus(false));
+      document.getElementById('btn-open-ide')?.addEventListener('click', () => activateOpenIDE());
+      document.getElementById('btn-dock-top')?.addEventListener('click', () => notifyMacHost({ type: 'dockTop' }));
+      document.getElementById('btn-free-win')?.addEventListener('click', () => notifyMacHost({ type: 'detachFree' }));
+      document.getElementById('btn-pin')?.addEventListener('click', () => notifyMacHost({ type: 'togglePin' }));
+      document.getElementById('btn-quit')?.addEventListener('click', () => notifyMacHost({ type: 'quit' }));
+
+      document.querySelectorAll('[data-action="drawer"]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const t = btn.dataset.target;
+          state.openDrawer = state.openDrawer === t ? null : t;
+          render();
+          if (state.openDrawer === 'add-track') document.getElementById('add-title')?.focus();
+        });
+      });
+      document.querySelector('[data-action="close-drawer"]')?.addEventListener('click', () => {
+        state.openDrawer = null;
+        render();
+      });
+
+      document.getElementById('btn-create-track')?.addEventListener('click', async () => {
+        const title = document.getElementById('add-title')?.value.trim() || '';
+        const priority = document.getElementById('add-pri')?.value || 'P1';
+        const goal = document.getElementById('add-goal')?.value.trim() || '';
+        const next = document.getElementById('add-next')?.value.trim() || '';
+        if (!title) { showToast('请填写名称'); document.getElementById('add-title')?.focus(); return; }
+        const data = await api('/api/track/add', { priority, title, goal, next });
+        state.hub = data.status;
+        state.openDrawer = null;
+        showToast(`已添加「${title}」`);
+        render();
+      });
+
+      document.querySelectorAll('[data-action="open-track"]').forEach((row) => {
+        row.addEventListener('click', () => {
+          state.activeTrackId = row.dataset.id;
+          state.trackShowBg = false;
+          state.trackEditMeta = false;
+          state.renamingTrackId = null;
+          state.confirmDeleteTrackId = null;
+          render();
+        });
+      });
+
+      document.querySelectorAll('[data-action="start-rename"]').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          state.renamingTrackId = btn.dataset.id;
+          state.renameDraft = btn.dataset.title || '';
+          render();
+          const inp = document.getElementById('rename-inp');
+          inp?.focus();
+          inp?.select();
+        });
+      });
+      document.querySelectorAll('[data-action="del-track"]').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          handleDeleteTrack(btn.dataset.id, btn.dataset.title);
+        });
+      });
+
+      const renInp = document.getElementById('rename-inp');
+      renInp?.addEventListener('input', (e) => { state.renameDraft = e.target.value; });
+      renInp?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && state.renamingTrackId) saveInlineRename(state.renamingTrackId);
+        if (e.key === 'Escape') { state.renamingTrackId = null; render(); }
+      });
+      document.querySelector('[data-action="save-rename"]')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        saveInlineRename(e.currentTarget.dataset.id);
+      });
+      document.querySelector('[data-action="cancel-rename"]')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        state.renamingTrackId = null;
+        render();
+      });
+
+      // Composer
+      const box = document.getElementById(scopedTrack ? 'track-input' : 'home-input');
+      box?.addEventListener('input', (e) => {
+        if (scopedTrack) state.trackInputText = e.target.value;
+        else state.commandText = e.target.value;
+      });
+      box?.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+          e.preventDefault();
+          handleSend(scopedTrack);
+        }
+      });
+      document.querySelectorAll('[data-action="set-dest"]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          state.dest = btn.dataset.dest || 'main';
+          render();
+          document.getElementById(scopedTrack ? 'track-input' : 'home-input')?.focus();
+        });
+      });
+      document.getElementById('home-track-sel')?.addEventListener('change', (e) => {
+        state.homeTrackId = e.target.value;
+        render();
+      });
+
+      const triggerHandover = async () => {
+        const targetTrack = scopedTrack || (state.hub?.tracks || []).find((t) => t.id === state.homeTrackId) || null;
+        try {
+          state.busy = true;
+          render();
+          const data = await api('/api/chat/handover', {
+            trackId: targetTrack ? targetTrack.id : null,
+            trackTitle: targetTrack ? targetTrack.title : '',
+          });
+          state.hub = data.status;
+          if (data.result?.immediate) {
+            showToast('已切到全新对话');
+          } else {
+            showToast('正在总结交接，几秒后自动切新对话');
+            syncBadgeAndPolling();
+          }
+        } catch (e) {
+          showToast(`交接失败：${e.message}`);
+        } finally {
+          state.busy = false;
+          render();
+        }
+      };
+      document.getElementById('btn-do-handover')?.addEventListener('click', triggerHandover);
+      document.getElementById('btn-do-handover-inline')?.addEventListener('click', triggerHandover);
+      document.getElementById('btn-dismiss-handover')?.addEventListener('click', async () => {
+        const trackId = scopedTrack ? scopedTrack.id : (state.homeTrackId || null);
+        const data = await api('/api/chat/dismiss-handover', { trackId });
+        state.hub = data.status;
+        render();
+      });
+      document.getElementById('btn-send')?.addEventListener('click', () => handleSend(scopedTrack));
+
+      // Results & files
+      document.querySelectorAll('[data-action="open-res"]').forEach((btn) => {
+        btn.addEventListener('click', () => toggleRawResult(btn.dataset.id, btn.dataset.file, btn.dataset.rel));
+      });
+      document.querySelectorAll('[data-action="del-res"]').forEach((btn) => {
+        btn.addEventListener('click', () => deleteResultItem(btn.dataset.id));
+      });
+      document.querySelectorAll('[data-action="reveal"]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          try {
+            await api('/api/reveal-file', { path: btn.dataset.path });
+            showToast('已在访达定位');
+          } catch {
+            try { await navigator.clipboard.writeText(btn.dataset.path); showToast('已复制路径'); } catch {}
+          }
+        });
+      });
+
+      // Team slots
+      document.getElementById('btn-team-toggle')?.addEventListener('click', () => {
+        state.teamExpanded = !state.teamExpanded;
+        if (!state.teamExpanded) state.pickingSlotId = null;
+        render();
+      });
+      document.querySelectorAll('[data-action="pick-slot"]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const s = btn.dataset.slot;
+          state.pickingSlotId = state.pickingSlotId === s ? null : s;
+          render();
+        });
+      });
+      document.querySelector('[data-action="close-picker"]')?.addEventListener('click', () => {
+        state.pickingSlotId = null;
+        render();
+      });
+      document.querySelectorAll('[data-action="unplug-slot"]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const data = await api('/api/slot', { slotId: btn.dataset.slot, adapterId: 'none' });
+          state.hub = data.status;
+          showToast(data.action?.message || '已拔出');
+          render();
+        });
+      });
+      document.querySelectorAll('[data-action="plug-slot"]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const data = await api('/api/slot', { slotId: btn.dataset.slot, adapterId: btn.dataset.adapter });
+          state.hub = data.status;
+          state.pickingSlotId = null;
+          showToast(data.action?.message || '已上岗');
+          render();
+        });
+      });
+
+      if (scopedTrack) {
+        document.getElementById('btn-back')?.addEventListener('click', () => {
+          state.activeTrackId = null;
+          render();
+        });
+        document.getElementById('btn-bg')?.addEventListener('click', () => {
+          state.trackShowBg = !state.trackShowBg;
+          render();
+        });
+        document.getElementById('btn-del-detail')?.addEventListener('click', () => handleDeleteTrack(scopedTrack.id, scopedTrack.title));
+        const openHeroRename = () => {
+          state.renamingTrackId = scopedTrack.id;
+          state.renameDraft = scopedTrack.title || '';
+          render();
+          const inp = document.getElementById('rename-inp');
+          inp?.focus();
+          inp?.select();
+        };
+        document.getElementById('hero-title')?.addEventListener('click', openHeroRename);
+        document.getElementById('hero-edit-title')?.addEventListener('click', openHeroRename);
+        document.getElementById('btn-edit-meta')?.addEventListener('click', () => {
+          state.trackEditMeta = !state.trackEditMeta;
+          render();
+        });
+        document.getElementById('btn-cancel-meta')?.addEventListener('click', () => {
+          state.trackEditMeta = false;
+          render();
+        });
+        document.getElementById('btn-save-meta')?.addEventListener('click', async () => {
+          const goal = document.getElementById('em-goal')?.value.trim() || '';
+          const latest = document.getElementById('em-latest')?.value.trim() || '';
+          const next = document.getElementById('em-next')?.value.trim() || '';
+          const data = await api('/api/track/update', { trackId: scopedTrack.id, goal, latest, next });
+          state.hub = data.status;
+          state.trackEditMeta = false;
+          showToast('已保存');
+          render();
+        });
+      }
+    }
+
+    refreshStatus(false);
+  </script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "id": "claude-cli",
+  "name": "Claude",
+  "vendor": "Anthropic",
+  "icon": "🟠",
+  "kind": "cli-worker",
+  "tier": "high-iq",
+  "billing": "Claude 额度",
+  "summary": "擅长写代码、审方案，插进黑奴或监工位都能直接干活。",
+  "capabilities": ["coding", "high-iq", "review", "headless"],
+  "detect": {
+    "type": "binary",
+    "binaries": ["claude", "~/.local/bin/claude", "/opt/homebrew/bin/claude", "/usr/local/bin/claude"]
+  },
+  "runner": "claude-cli"
+}

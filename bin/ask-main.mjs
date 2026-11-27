@@ -99,7 +99,7 @@ function buildMainPrompt({ prompt, source, hubRoot, mainLabel = '主力' }) {
     `【${source}手机远程转交任务】`,
     `你现在是用户的核心主力搭档「${mainLabel}」（Antigravity），请按正常工作链路处理下面这条来自手机端的指令：`,
     '1. 严格遵守工作区 AGENTS.md 守则与所有红线（默认快速定位：先读事情总表.md 及最相关的 2-3 个核心文件；绝不碰 .env / *.sqlite3 / 密钥 / 生产库写入；改任何已有文件前必须先备份原件）；',
-    `2. 动脑分析并推进；如果涉及批量读文件/整理体力活，可按多AI中枢流程调 node "${path.join(hubRoot, 'bin', 'hub-ctl.mjs')}" dispatch --slot worker 派给黑奴处理并验收；`,
+    `2. 动脑分析并推进；如果用户在手机上交代「记一下/提醒我/别忘了」，直接执行 node "${path.join(hubRoot, 'bin', 'hub-ctl.mjs')}" memory add "<内容>" --source mobile 落盘并反馈识别出的到期日；如果涉及批量读文件/整理体力活，可按多AI中枢流程调 node "${path.join(hubRoot, 'bin', 'hub-ctl.mjs')}" dispatch --slot worker 派给黑奴处理并验收；`,
     `3. 输出给手机端看的最终答复：以「${mainLabel}」的身份用**大白话**直接说清结论、关键数字和下一步，像靠谱搭档发微信一样自然好读，不要堆砌专业术语、不要长篇表格或大段代码，控制在 3-8 行以内即可。`,
     '',
     '--- 用户的原始指令 ---',

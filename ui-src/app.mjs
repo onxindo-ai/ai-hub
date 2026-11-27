@@ -14,17 +14,18 @@ const state = {
   renamingTrackId: null,       // Track ID currently being inline-renamed
   renameDraft: '',
   confirmDeleteTrackId: null,  // 2-click safety confirm for deleting a track
-  homeDest: 'current',         // 'current' | 'new' | 'worker'
-  homeTrackId: '',             // Optional mainline binding in home composer
-  trackDest: 'current',        // 'current' | 'new' | 'worker' inside track detail
   archiveOldOnNew: true,       // Archive previous conversation of this track when opening a new one
-  trackInputText: '',
-  lastSentNote: '',            // Clear feedback after sending
+  trackInputText: '',          // Single-line worker prompt inside track detail
+  memoryInputText: '',         // Single-line quick memory fragment input
+  showDoneMemories: false,     // Collapsible completed memories
+  showVault: false,            // Collapsible local permanent vault
+  vaultSearch: '',             // Live filter inside local vault
+  attachedContextLabel: '',    // Active pill attached via updateModelContext
+  lastSentNote: '',            // Clear feedback after action
   teamExpanded: false,         // Collapsible modular team bar (default collapsed)
   pickingSlotId: null,         // Only open picker drawer when clicking "换人/插一个"
   openDrawer: null,            // null | 'results' | 'add-track'
   busy: false,
-  commandText: '',
   expandedResults: {},         // { [resultId]: true }
   resultBodies: {},            // { [resultId]: fullRawText }
   hostCaps: {},
@@ -191,22 +192,6 @@ function formatPlainConclusion(rawText) {
   return out.length > 180 ? out.slice(0, 179) + '…' : out;
 }
 
-function getEffectiveHomeDest(hub) {
-  const canMsg = Boolean(state.hostCaps?.message);
-  const workerReady = Boolean(hub.slots.find((s) => s.id === 'worker')?.mounted?.status === 'ready');
-  if (state.homeDest === 'current' && !canMsg) return 'new';
-  if (state.homeDest === 'worker' && !workerReady) return canMsg ? 'current' : 'new';
-  return state.homeDest;
-}
-
-function getEffectiveTrackDest(hub) {
-  const canMsg = Boolean(state.hostCaps?.message);
-  const workerReady = Boolean(hub.slots.find((s) => s.id === 'worker')?.mounted?.status === 'ready');
-  if (state.trackDest === 'current' && !canMsg) return 'new';
-  if (state.trackDest === 'worker' && !workerReady) return canMsg ? 'current' : 'new';
-  return state.trackDest;
-}
-
 async function callTool(name, args = {}) {
   state.busy = true;
   render();
@@ -303,7 +288,6 @@ async function requestDeleteTrack(trackId, trackTitle) {
     state.trackShowBg = false;
     state.trackEditMeta = false;
   }
-  if (state.homeTrackId === trackId) state.homeTrackId = '';
   showToast(`已删除主线「${trackTitle || ''}」`);
   render();
 }
@@ -339,127 +323,6 @@ async function handoverCurrentChat() {
   if (res?.structuredContent?.status) state.hub = res.structuredContent.status;
   state.lastSentNote = '✨ 已在左侧列表顶部建好接棒新对话，点过去接着聊即可。';
   render();
-}
-
-async function sendFromHome() {
-  const hub = state.hub;
-  const mainName = getMainName(hub);
-  const workerName = getWorkerName(hub);
-  const dest = getEffectiveHomeDest(hub);
-  const textEl = document.getElementById('cmd-input');
-  const rawText = (textEl ? textEl.value : state.commandText).trim();
-  state.commandText = rawText;
-
-  const boundTrack = (hub.tracks || []).find((t) => t.id === state.homeTrackId) || null;
-  const wrappedText = rawText && boundTrack ? `【主线：${boundTrack.title}】${rawText}` : rawText;
-  const canMsg = Boolean(state.hostCaps?.message);
-
-  if (dest === 'current') {
-    if (!rawText) {
-      showToast('先输入要交代的事吧');
-      textEl?.focus();
-      return;
-    }
-    if (canMsg) {
-      try {
-        await app.sendMessage({
-          role: 'user',
-          content: [{ type: 'text', text: wrappedText }],
-        });
-        state.commandText = '';
-        state.lastSentNote = `✅ 已发进左侧对话，看左边${mainName}回复即可。`;
-        render();
-        return;
-      } catch (e) {
-        showToast(`发送失败：${e.message}`);
-        return;
-      }
-    }
-  }
-
-  if (dest === 'new') {
-    const prompt = wrappedText
-      || (boundTrack
-        ? `继续推进主线「${boundTrack.title}」${boundTrack.next ? `，下一步重点：${boundTrack.next}` : ''}。请先读相关记录，用大白话告诉我现在怎么做。`
-        : `${mainName}你好，请先读事情总表和最新进度，用大白话告诉我当前重点是什么。`);
-    if (canMsg) {
-      try {
-        const res = await app.sendMessage({
-          role: 'user',
-          content: [{ type: 'text', text: prompt }],
-          _meta: { 'com.google.antigravity/message': { target: 'new' } },
-        });
-        const newId = res?._meta?.['com.google.antigravity/message']?.conversationId;
-        if (boundTrack && newId) {
-          const b = await callTool('hub_bind_track_conversation', {
-            trackId: boundTrack.id,
-            conversationId: newId,
-            archivePrevious: false,
-          });
-          if (b?.structuredContent?.status) state.hub = b.structuredContent.status;
-        }
-        state.commandText = '';
-        state.lastSentNote = '✨ 已在左侧列表顶部新建一条独立对话，点过去就能看回复。';
-        render();
-        return;
-      } catch {
-        // fallback to server handover
-      }
-    }
-    const res = await callTool('hub_handover_conversation', {
-      title: boundTrack ? boundTrack.title.slice(0, 20) : (rawText ? rawText.slice(0, 20) : '新任务对话'),
-      summary: boundTrack ? (boundTrack.latest || boundTrack.title) : '从多AI中枢面板发起的新任务',
-      files: (boundTrack?.keyFiles?.length) ? ['事情总表.md', ...boundTrack.keyFiles.slice(0, 2)].join(',') : '事情总表.md',
-      nextSteps: prompt,
-      trackId: boundTrack ? boundTrack.id : undefined,
-      archiveCurrent: false,
-    });
-    if (res?.structuredContent?.status) state.hub = res.structuredContent.status;
-    state.commandText = '';
-    state.lastSentNote = '✨ 已在左侧列表顶部新建独立对话，点过去就能看回复。';
-    render();
-    return;
-  }
-
-  if (dest === 'worker') {
-    if (!rawText) {
-      showToast(`先写清楚要${workerName}干什么`);
-      textEl?.focus();
-      return;
-    }
-    state.commandText = '';
-    render();
-    try {
-      const contextLines = boundTrack
-        ? [
-            `主线名称：${boundTrack.title}`,
-            boundTrack.goal ? `最终目标：${boundTrack.goal}` : '',
-            boundTrack.latest ? `当前进度：${boundTrack.latest}` : '',
-          ].filter(Boolean).join('\n') + '\n\n'
-        : '';
-      const res = await callTool('hub_dispatch_task', {
-        title: boundTrack ? `${boundTrack.title.slice(0, 14)} · 回复` : rawText.slice(0, 18),
-        prompt: `${contextLines}用户要求：${rawText}\n\n${PLAIN_WORKER_RULES}`,
-        slot: 'worker',
-        mode: 'read-only',
-        noWeb: true,
-        trackId: boundTrack ? boundTrack.id : undefined,
-        async: true,
-      });
-      if (res?.structuredContent?.status) state.hub = res.structuredContent.status;
-      if (res?.isError) {
-        showToast(res.content?.[0]?.text || '派活失败');
-      } else {
-        state.lastSentNote = boundTrack
-          ? `🐳 已派给${workerName}后台跑，完成后结论会存进「${boundTrack.title}」。`
-          : `🐳 已派给${workerName}后台跑，完成后可在右上角「成品库」看。`;
-        syncPolling();
-      }
-      render();
-    } catch (e) {
-      showToast(`派活失败：${e.message}`);
-    }
-  }
 }
 
 async function toggleResultReply(resultId, filePath, runtimeRelPath, forceOpen = false) {
@@ -527,87 +390,62 @@ async function saveTrackMeta(trackId) {
   render();
 }
 
-async function handleTrackAction(track) {
+async function dispatchTrackWorker(track) {
   const hub = state.hub;
-  const mainName = getMainName(hub);
   const workerName = getWorkerName(hub);
-  const mode = getEffectiveTrackDest(hub);
-  const input = document.getElementById('track-cmd-input');
+  const input = document.getElementById('track-worker-input');
   const q = (input ? input.value : state.trackInputText).trim();
-  const text = q
-    ? `【主线：${track.title}】${q}`
-    : `继续跟进主线「${track.title}」${track.next ? `，下一步重点：${track.next}` : ''}。请先读相关进度，直接用大白话告诉我下一步方案。`;
-
-  if (mode === 'worker') {
-    if (!q) {
-      showToast(`先写一下要${workerName}查或改什么`);
-      input?.focus();
-      return;
-    }
-    state.trackInputText = '';
-    render();
-    const prevReply = (state.hub?.results || []).find(
-      (r) => r.trackId === track.id || (r.title && r.title.includes(track.title.slice(0, 4)))
-    );
-    const contextHint = [
-      `主线名称：${track.title}`,
-      track.goal ? `最终目标：${track.goal}` : '',
-      track.latest ? `当前进度：${track.latest}` : '',
-      prevReply?.summary ? `上一版人话结论：${formatPlainConclusion(prevReply.summary)}` : '',
-    ].filter(Boolean).join('\n');
-
-    try {
-      const res = await callTool('hub_dispatch_task', {
-        title: `${track.title.slice(0, 14)} · 回复`,
-        prompt: `${contextHint}\n\n用户最新要求：${q}\n\n${PLAIN_WORKER_RULES}`,
-        slot: 'worker',
-        mode: 'read-only',
-        noWeb: true,
-        trackId: track.id,
-        async: true,
-      });
-      if (res?.structuredContent?.status) state.hub = res.structuredContent.status;
-      if (res?.isError) {
-        showToast(res.content?.[0]?.text || '派活失败');
-      } else {
-        showToast(`🐳 已派给${workerName}，完成后结论会显示在下方`);
-        syncPolling();
-      }
-      render();
-    } catch (e) {
-      showToast(`派活失败：${e.message}`);
-    }
+  if (!q) {
+    showToast(`先写一下要${workerName}查什么`);
+    input?.focus();
     return;
   }
-
-  const canMsg = Boolean(state.hostCaps?.message);
   state.trackInputText = '';
   render();
+  const prevReply = (state.hub?.results || []).find(
+    (r) => r.trackId === track.id || (r.title && r.title.includes(track.title.slice(0, 4)))
+  );
+  const contextHint = [
+    `主线名称：${track.title}`,
+    track.goal ? `最终目标：${track.goal}` : '',
+    track.latest ? `当前进度：${track.latest}` : '',
+    prevReply?.summary ? `上一版人话结论：${formatPlainConclusion(prevReply.summary)}` : '',
+  ].filter(Boolean).join('\n');
 
-  if (mode === 'current' && canMsg) {
-    try {
-      await app.sendMessage({
-        role: 'user',
-        content: [{ type: 'text', text }],
-      });
-      state.lastSentNote = `✅ 已发进左侧对话，看左边${mainName}回复即可。`;
-      render();
-      return;
-    } catch (e) {
-      showToast(`发送失败：${e.message}`);
-      return;
+  try {
+    const res = await callTool('hub_dispatch_task', {
+      title: `${track.title.slice(0, 14)} · 回复`,
+      prompt: `${contextHint}\n\n用户最新要求：${q}\n\n${PLAIN_WORKER_RULES}`,
+      slot: 'worker',
+      mode: 'read-only',
+      noWeb: true,
+      trackId: track.id,
+      async: true,
+    });
+    if (res?.structuredContent?.status) state.hub = res.structuredContent.status;
+    if (res?.isError) {
+      showToast(res.content?.[0]?.text || '派活失败');
+    } else {
+      showToast(`🐳 已派给${workerName}，完成后结论会显示在下方`);
+      syncPolling();
     }
+    render();
+  } catch (e) {
+    showToast(`派活失败：${e.message}`);
   }
+}
 
-  // mode === 'new': unified clean new conversation + optional precise archive of this track's previous conversation
+async function openTrackNewConversation(track) {
+  const hub = state.hub;
+  const mainName = getMainName(hub);
+  const canMsg = Boolean(state.hostCaps?.message);
   const wantArchive = Boolean(state.archiveOldOnNew);
   const files = (track.keyFiles && track.keyFiles.length)
     ? ['事情总表.md', ...track.keyFiles.slice(0, 2)].join(',')
     : '事情总表.md';
+  const text = `继续跟进主线「${track.title}」${track.next ? `，下一步重点：${track.next}` : ''}。请先读相关进度，直接用大白话告诉我下一步方案。`;
 
-  // If track has NO remembered conversation yet, user left input empty & wants archive in side pane:
-  // let main AI in the current left conversation perform full handover + archive old conversation cleanly.
-  if (wantArchive && !track.lastConversationId && !q && canMsg) {
+  if (wantArchive && canMsg) {
     try {
       const title = `${track.title} · 续接`;
       const summary = track.latest || track.status || track.goal || track.title;
@@ -616,10 +454,10 @@ async function handleTrackAction(track) {
         role: 'user',
         content: [{
           type: 'text',
-          text: `${mainName}，请帮我为主线「${track.title}」一键换新对话：先落盘最新进度，再调用 hub-ctl.mjs handover（标题：${title}，总结：${summary}，必读：${files}，下一步：${nextSteps}）建好接棒新对话并自动归档当前老对话，把新对话链接发给我。`,
+          text: `${mainName}，请帮我为主线「${track.title}」一键换新对话并归档旧对话：先把本轮最新结论落盘，再执行 \`node 协作与工具/多AI中枢/bin/hub-ctl.mjs handover --track-id "${track.id}" --title "${title}" --summary "${summary}" --files "${files}" --next "${nextSteps}"\`（会自动建好接棒新对话、绑定主线并精准归档左侧旧对话），最后把新对话入口链接发给我。`,
         }],
       });
-      state.lastSentNote = `🔄 已让左侧${mainName}落盘接棒并自动归档老对话。`;
+      state.lastSentNote = `🔄 已让左侧${mainName}落盘接棒、建新对话并自动归档旧对话。`;
       render();
       return;
     } catch (e) {
@@ -636,19 +474,15 @@ async function handleTrackAction(track) {
         _meta: { 'com.google.antigravity/message': { target: 'new' } },
       });
       const newId = msgRes?._meta?.['com.google.antigravity/message']?.conversationId;
-      let archivedPrev = false;
       if (newId) {
         const bindRes = await callTool('hub_bind_track_conversation', {
           trackId: track.id,
           conversationId: newId,
-          archivePrevious: wantArchive,
+          archivePrevious: false,
         });
         if (bindRes?.structuredContent?.status) state.hub = bindRes.structuredContent.status;
-        archivedPrev = Boolean(bindRes?.structuredContent?.result?.archivedPreviousId);
       }
-      state.lastSentNote = archivedPrev
-        ? '✨ 已在左侧顶部新建本主线对话，并自动归档了本主线上一条旧对话。'
-        : '✨ 已在左侧顶部新建本主线独立对话，点过去就能看回复（已记住绑定，下次换新可自动归档它）。';
+      state.lastSentNote = '✨ 已在左侧顶部新建本主线独立对话，点过去就能看回复。';
       render();
       return;
     } catch {
@@ -667,8 +501,10 @@ async function handleTrackAction(track) {
   if (res?.structuredContent?.status) state.hub = res.structuredContent.status;
   const r = res?.structuredContent?.result || {};
   state.lastSentNote = r.archivedOld
-    ? '✨ 已建好本主线新对话，并自动归档了本主线上一条旧对话。'
-    : '✨ 已在左侧列表顶部建好本主线新对话，点过去就能看回复。';
+    ? '✨ 已建好本主线新对话，并自动归档了上一条旧对话。'
+    : (wantArchive
+      ? '✨ 已生成交接单（当前视图无法直接归档左侧对话，请在对话侧边栏点开新对话或手动归档）。'
+      : '✨ 已在左侧列表顶部建好本主线新对话，点过去就能看回复。');
   render();
 }
 
@@ -683,61 +519,307 @@ function renderTracks(hub) {
   }
   return `
     <div class="tracks-list">
-      ${tracks.map((t) => {
-        if (state.renamingTrackId === t.id) {
-          return `
-            <div class="track-row editing">
-              ${renderPriorityPicker(t)}
-              <div class="inline-rename-wrap">
-                <input type="text" id="inline-rename-input" value="${esc(state.renameDraft)}" placeholder="输入新的主线名称" />
-                <button class="primary" style="padding:4px 9px" data-action="save-rename" data-track-id="${esc(t.id)}" ${state.busy ? 'disabled' : ''}>保存</button>
-                <button style="padding:4px 8px" data-action="cancel-rename">取消</button>
+      ${tracks.map((t) => `
+        <div class="track-row" data-action="open-track" data-track-id="${esc(t.id)}">
+          ${renderPriorityPicker(t)}
+          <div class="track-main">
+            <span class="track-title">${esc(t.title)}</span>
+          </div>
+          <div class="track-row-actions">
+            <span class="track-chevron">›</span>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+async function attachToNextMessage(label, contextText) {
+  if (!state.hostCaps?.updateModelContext) {
+    showToast('仅在对话右侧边栏打开时支持挂入输入框');
+    return;
+  }
+  try {
+    await app.updateModelContext({
+      content: [{ type: 'text', text: contextText }],
+    });
+    state.attachedContextLabel = label;
+    showToast(`📎 已挂到左侧输入框，发下一句话时自动带上`);
+    render();
+  } catch (e) {
+    showToast(`挂载失败：${e.message}`);
+  }
+}
+
+async function clearAttachedContext() {
+  if (!state.hostCaps?.updateModelContext) {
+    state.attachedContextLabel = '';
+    render();
+    return;
+  }
+  try {
+    await app.updateModelContext({ content: [] });
+  } catch {
+    // ignore
+  }
+  state.attachedContextLabel = '';
+  render();
+}
+
+async function addMemoryItem() {
+  const input = document.getElementById('mem-quick-input');
+  const text = (input ? input.value : state.memoryInputText).trim();
+  if (!text) {
+    input?.focus();
+    return;
+  }
+  state.memoryInputText = '';
+  const res = await callTool('hub_add_memory', { text, source: 'panel' });
+  if (res?.structuredContent?.status) state.hub = res.structuredContent.status;
+  const r = res?.structuredContent?.result;
+  if (r?.routedTo === 'vault') {
+    state.showVault = true;
+    showToast('📌 识别为重要记录，已永久存入本机「重要记录」文件夹');
+  } else {
+    showToast(r?.item?.dueDate ? `✅ 已记下（自动设提醒：${r.item.dueDate}）` : '✅ 已记入临时碎片');
+  }
+  render();
+}
+
+async function promoteMemoryItem(memoryId) {
+  const res = await callTool('hub_promote_memory', { memoryId });
+  if (res?.structuredContent?.status) state.hub = res.structuredContent.status;
+  state.showVault = true;
+  showToast('📌 已转存到本机「重要记录」文件夹（永不随碎片清理）');
+  render();
+}
+
+async function removeVaultItem(recordId) {
+  const res = await callTool('hub_delete_vault', { recordId });
+  if (res?.structuredContent?.status) state.hub = res.structuredContent.status;
+  showToast('已删除该条重要记录');
+  render();
+}
+
+async function openLocalVaultFolder() {
+  try {
+    const res = await callTool('hub_open_vault', {});
+    const dir = res?.structuredContent?.vaultDir || 'runtime/重要记录';
+    showToast(`📂 已打开本地文件夹：${dir}`);
+  } catch (e) {
+    showToast(`打开失败：${e.message}`);
+  }
+}
+
+async function toggleMemoryItem(memoryId, forceDone = undefined) {
+  const args = forceDone === undefined ? { memoryId } : { memoryId, done: forceDone };
+  const res = await callTool('hub_toggle_memory', args);
+  if (res?.structuredContent?.status) state.hub = res.structuredContent.status;
+  render();
+}
+
+async function removeMemoryItem(memoryId) {
+  const res = await callTool('hub_delete_memory', { memoryId });
+  if (res?.structuredContent?.status) state.hub = res.structuredContent.status;
+  render();
+}
+
+async function tidyMemoriesWithWorker() {
+  try {
+    const res = await callTool('hub_tidy_memories', {});
+    if (res?.structuredContent?.status) state.hub = res.structuredContent.status;
+    if (res?.isError) {
+      showToast(res.content?.[0]?.text || '发起整理失败');
+    } else {
+      showToast('🐳 黑奴正在后台整理碎片，几秒后呈现采纳方案');
+      syncPolling();
+    }
+    render();
+  } catch (e) {
+    showToast(`整理失败：${e.message}`);
+  }
+}
+
+async function applyTidyProposal(accept) {
+  const res = await callTool('hub_apply_memory_tidy', { accept: Boolean(accept) });
+  if (res?.structuredContent?.status) state.hub = res.structuredContent.status;
+  showToast(accept ? '✅ 已采纳整理方案' : '已忽略本次整理');
+  render();
+}
+
+function formatDueBadge(dueDate) {
+  if (!dueDate) return null;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const m = String(dueDate).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return { label: dueDate, cls: 'due' };
+  const target = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const diff = Math.round((target.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+  if (diff < 0) return { label: `过期${Math.abs(diff)}天`, cls: 'overdue' };
+  if (diff === 0) return { label: '今天', cls: 'due' };
+  if (diff === 1) return { label: '明天', cls: 'due' };
+  return { label: `${m[2]}-${m[3]}`, cls: 'due' };
+}
+
+function renderReminders(hub) {
+  const list = hub.reminders || [];
+  if (list.length === 0) return '';
+  return `
+    <div class="reminder-box">
+      <div class="reminder-head">
+        <span>⏰ 防遗忘提醒（${list.length}）</span>
+        <span style="font-weight:400;opacity:.8">处理完自动消失</span>
+      </div>
+      ${list.slice(0, 5).map((r) => `
+        <div class="reminder-row">
+          <span class="rem-badge ${esc(r.level)}">${esc(r.badge)}</span>
+          <span class="rem-title" title="${esc(r.title)}">${esc(r.title)}</span>
+          ${r.targetType === 'memory'
+            ? `<button class="text-btn" style="padding:2px 6px;font-size:11.5px" data-action="rem-done-mem" data-mem-id="${esc(r.targetId)}" ${state.busy ? 'disabled' : ''}>✓ 划掉</button>`
+            : `<button class="text-btn" style="padding:2px 6px;font-size:11.5px" data-action="open-track" data-track-id="${esc(r.targetId)}">去看 ›</button>`}
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderMemoriesSection(hub, canCtx) {
+  const all = hub.memories || [];
+  const active = all.filter((m) => !m.done);
+  const done = all.filter((m) => m.done);
+  const vault = hub.vaultRecords || [];
+  const kw = state.vaultSearch.trim().toLowerCase();
+  const filteredVault = kw
+    ? vault.filter((v) => `${v.text} ${v.category}`.toLowerCase().includes(kw))
+    : vault;
+  const workerSlot = hub.slots.find((s) => s.id === 'worker');
+  const workerReady = Boolean(workerSlot?.mounted && workerSlot.mounted.status === 'ready');
+  const workerName = getWorkerName(hub);
+  const proposal = hub.memoryTidyProposal;
+
+  return `
+    <div class="section-block">
+      <div class="sec-head">
+        <div class="sec-title">碎片记忆 ${active.length > 0 ? `<span style="color:var(--fg-3);font-weight:400">(${active.length})</span>` : ''}</div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <button class="${state.showVault ? 'active-pill' : 'text-btn'}" id="btn-toggle-vault" title="永久存在本机文件夹，不随临时碎片清理、不外发">
+            📌 重要本${vault.length > 0 ? ` (${vault.length})` : ''} ${state.showVault ? '▴' : '▾'}
+          </button>
+          ${workerReady && active.length >= 3 ? `
+            <button class="text-btn" id="btn-tidy-memories" ${state.busy ? 'disabled' : ''} title="派${esc(workerName)}后台去重合并整理普通临时碎片">
+              ${esc(workerSlot.mounted.icon)} 理一下
+            </button>
+          ` : ''}
+          ${done.length > 0 ? `
+            <button class="text-btn" id="btn-toggle-done-mem">
+              已划掉 (${done.length}) ${state.showDoneMemories ? '▴' : '▾'}
+            </button>
+          ` : ''}
+        </div>
+      </div>
+
+      <div class="mem-input-bar">
+        <input type="text" id="mem-quick-input" value="${esc(state.memoryInputText)}" placeholder="随手记一句（带日期自动设提醒，账号/密码自动存本地重要本）…" />
+        <button class="soft" id="btn-add-memory" ${state.busy ? 'disabled' : ''}>记下</button>
+      </div>
+
+      ${state.showVault ? `
+        <div class="vault-box">
+          <div class="vault-head">
+            <span>📌 仅存本机文件夹（永不清理 · 不发给云端模型）</span>
+            <button class="text-btn" id="btn-open-vault" style="padding:2px 6px;font-size:11.5px">📂 打开文件夹</button>
+          </div>
+          ${vault.length > 0 ? `
+            <div class="vault-search">
+              <input type="text" id="vault-search-input" value="${esc(state.vaultSearch)}" placeholder="搜账号、邮箱或关键词…" />
+            </div>
+            <div class="vault-list">
+              ${filteredVault.length > 0 ? filteredVault.map((v) => `
+                <div class="vault-row">
+                  <span class="vault-cat">${esc(v.category || '重要')}</span>
+                  <div class="mem-body">
+                    <span class="mem-text">${esc(v.text)}</span>
+                  </div>
+                  <div class="mem-actions">
+                    <button class="icon-btn" data-action="copy-vault" data-text="${esc(v.text)}" title="复制">📋</button>
+                    <button class="icon-btn" data-action="delete-vault" data-vault-id="${esc(v.id)}" title="删除">✕</button>
+                  </div>
+                </div>
+              `).join('') : '<div style="padding:10px;font-size:12px;color:var(--fg-3);text-align:center">没有匹配的记录</div>'}
+            </div>
+          ` : '<div style="font-size:12px;color:var(--fg-3)">暂无重要记录：在上方直接输入含「账号 / 密码 / Apple ID / 重要」的内容会自动存入这里，或点下方碎片右侧的 📌 转存。</div>'}
+        </div>
+      ` : ''}
+
+      ${proposal ? `
+        <div class="mem-tidy-card">
+          <div class="mem-tidy-head">
+            <span>🐳 ${esc(proposal.by || workerName)}已整理好：${esc(proposal.summary)}</span>
+          </div>
+          <ul class="mem-tidy-list">
+            ${proposal.items.map((it) => `
+              <li>${esc(it.text)}${it.dueDate ? ` <span class="mem-pill due">${esc(it.dueDate)}</span>` : ''}</li>
+            `).join('')}
+          </ul>
+          <div style="display:flex;justify-content:flex-end;gap:6px">
+            <button class="text-btn" data-action="apply-tidy" data-accept="0" ${state.busy ? 'disabled' : ''}>忽略</button>
+            <button class="primary" style="padding:4px 10px" data-action="apply-tidy" data-accept="1" ${state.busy ? 'disabled' : ''}>✅ 采纳整理</button>
+          </div>
+        </div>
+      ` : ''}
+
+      ${active.length > 0 ? `
+        <div class="mem-list">
+          ${active.map((m) => {
+            const due = formatDueBadge(m.dueDate);
+            return `
+              <div class="mem-row">
+                <button class="mem-check" data-action="toggle-mem" data-mem-id="${esc(m.id)}" title="划掉完成">✓</button>
+                <div class="mem-body">
+                  <span class="mem-text">${esc(m.text)}</span>
+                  ${due ? `<span class="mem-pill ${esc(due.cls)}">⏰ ${esc(due.label)}</span>` : ''}
+                  ${m.tag && m.tag !== '备忘' && !due ? `<span class="mem-pill">${esc(m.tag)}</span>` : ''}
+                </div>
+                <div class="mem-actions">
+                  <button class="icon-btn" data-action="promote-mem" data-mem-id="${esc(m.id)}" title="转存为本机永久重要记录">📌</button>
+                  ${canCtx ? `<button class="icon-btn" data-action="attach-mem" data-mem-id="${esc(m.id)}" title="挂到左侧聊天输入框（不乱发消息）">📎</button>` : ''}
+                  <button class="icon-btn" data-action="delete-mem" data-mem-id="${esc(m.id)}" title="删除">✕</button>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      ` : ''}
+
+      ${state.showDoneMemories && done.length > 0 ? `
+        <div class="mem-list" style="margin-top:4px">
+          ${done.slice(0, 12).map((m) => `
+            <div class="mem-row done">
+              <button class="mem-check checked" data-action="toggle-mem" data-mem-id="${esc(m.id)}" title="取消划掉">✓</button>
+              <div class="mem-body">
+                <span class="mem-text">${esc(m.text)}</span>
+              </div>
+              <div class="mem-actions">
+                <button class="icon-btn" data-action="delete-mem" data-mem-id="${esc(m.id)}" title="彻底删除">✕</button>
               </div>
             </div>
-          `;
-        }
-        const isConfirmDel = state.confirmDeleteTrackId === t.id;
-        return `
-          <div class="track-row" data-action="open-track" data-track-id="${esc(t.id)}">
-            ${renderPriorityPicker(t)}
-            <div class="track-main">
-              <span class="track-title">${esc(t.title)}</span>
-            </div>
-            <div class="track-row-actions">
-              ${isConfirmDel ? `
-                <button class="confirm-danger" data-action="delete-track" data-track-id="${esc(t.id)}" data-title="${esc(t.title)}" ${state.busy ? 'disabled' : ''}>确认删</button>
-              ` : `
-                <button class="icon-btn row-rename-btn" data-action="start-rename" data-track-id="${esc(t.id)}" data-title="${esc(t.title)}" title="重命名">✎</button>
-                <button class="icon-btn row-delete-btn" data-action="delete-track" data-track-id="${esc(t.id)}" data-title="${esc(t.title)}" title="删除主线">✕</button>
-              `}
-              <span class="track-chevron">›</span>
-            </div>
-          </div>
-        `;
-      }).join('')}
+          `).join('')}
+        </div>
+      ` : ''}
     </div>
   `;
 }
 
 function renderTrackDetailPage(hub, track) {
-  const mainName = getMainName(hub);
   const workerName = getWorkerName(hub);
-  const canMsg = Boolean(state.hostCaps?.message);
   const workerSlot = hub.slots.find((s) => s.id === 'worker');
   const workerReady = Boolean(workerSlot?.mounted && workerSlot.mounted.status === 'ready');
-  const dest = getEffectiveTrackDest(hub);
+  const canCtx = Boolean(state.hostCaps?.updateModelContext);
   const isRenaming = state.renamingTrackId === track.id;
 
   const relatedResults = (hub.results || []).filter(
     (r) => r.trackId === track.id || (r.title && r.title.includes(track.title.slice(0, 4)))
   );
-
-  const placeholderMap = {
-    current: `直接发进左边对话，自动带上这条主线的背景跟${mainName}聊…`,
-    new: `留空可直接一键开本主线新对话，或写上你的新交代…`,
-    worker: `让${workerName}在后台查完，直接把人话结论回在下方…`,
-  };
-  const submitText = dest === 'new' && !state.trackInputText.trim() ? '一键开新对话' : '发送';
 
   return `
     <div class="page-stack">
@@ -835,33 +917,38 @@ function renderTrackDetailPage(hub, track) {
         </div>
       ` : ''}
 
-      <!-- Single-Layer Unified Track Composer -->
-      <div class="composer">
-        <textarea id="track-cmd-input" class="composer-input" placeholder="${esc(placeholderMap[dest])}">${esc(state.trackInputText)}</textarea>
-        <div class="composer-foot">
-          <div class="composer-left">
-            ${canMsg ? `<button class="mode-pill ${dest === 'current' ? 'active' : ''}" data-action="set-track-dest" data-dest="current">← 发给${esc(mainName)}</button>` : ''}
-            <button class="mode-pill ${dest === 'new' ? 'active' : ''}" data-action="set-track-dest" data-dest="new">✨ 开新对话</button>
-            ${workerReady ? `<button class="mode-pill ${dest === 'worker' ? 'active' : ''}" data-action="set-track-dest" data-dest="worker">${esc(workerSlot.mounted.icon)} ${esc(workerName)}直回</button>` : ''}
-          </div>
-          <button class="primary" id="btn-track-submit" ${state.busy ? 'disabled' : ''}>${esc(submitText)}</button>
+      <!-- Minimal Track Actions (Zero Mode-Switching) -->
+      <div class="action-strip">
+        <label class="archive-opt">
+          <input type="checkbox" id="chk-archive-old" ${state.archiveOldOnNew ? 'checked' : ''} />
+          <span>顺手归档旧对话</span>
+        </label>
+        <div style="display:flex;align-items:center;gap:6px">
+          ${canCtx ? `<button class="soft" id="btn-attach-track" title="把这条主线背景静默挂到左侧聊天输入框，发下句话自动带上">📎 挂到输入框</button>` : ''}
+          <button class="primary" id="btn-track-new" ${state.busy ? 'disabled' : ''}>✨ 开新对话</button>
         </div>
-        ${dest === 'new' ? `
-          <div class="composer-subbar">
-            <label class="archive-opt">
-              <input type="checkbox" id="chk-archive-old" ${state.archiveOldOnNew ? 'checked' : ''} />
-              <span>顺手归档本主线旧对话</span>
-            </label>
-            <span style="color:var(--fg-3)">${track.lastConversationId ? '已绑定旧对话' : '首次开完后自动记住'}</span>
-          </div>
-        ` : ''}
-        ${state.lastSentNote ? `
-          <div class="sent-banner">
-            <span>${esc(state.lastSentNote)}</span>
-            <button class="text-btn" data-action="dismiss-sent">知道了</button>
-          </div>
-        ` : ''}
       </div>
+
+      ${state.attachedContextLabel ? `
+        <div class="ctx-banner">
+          <span>📎 已挂到左侧输入框：${esc(state.attachedContextLabel)}</span>
+          <button class="text-btn" data-action="clear-ctx">取消</button>
+        </div>
+      ` : ''}
+
+      ${workerReady ? `
+        <div class="worker-bar">
+          <input type="text" id="track-worker-input" value="${esc(state.trackInputText)}" placeholder="让${esc(workerName)}后台查点东西，结论回在下方…" />
+          <button class="soft" id="btn-track-worker" ${state.busy ? 'disabled' : ''}>${esc(workerSlot.mounted.icon)} 派给${esc(workerName)}</button>
+        </div>
+      ` : ''}
+
+      ${state.lastSentNote ? `
+        <div class="sent-card">
+          <span>${esc(state.lastSentNote)}</span>
+          <button class="text-btn" data-action="dismiss-sent">知道了</button>
+        </div>
+      ` : ''}
 
       <!-- Live Running Jobs for this Track -->
       ${(() => {
@@ -1046,11 +1133,8 @@ function render() {
   }
 
   const hub = state.hub;
-  const mainName = getMainName(hub);
-  const workerName = getWorkerName(hub);
   const canMsg = Boolean(state.hostCaps?.message);
-  const workerSlot = hub.slots.find((s) => s.id === 'worker');
-  const workerReady = Boolean(workerSlot?.mounted && workerSlot.mounted.status === 'ready');
+  const canCtx = Boolean(state.hostCaps?.updateModelContext);
 
   if (state.activeTrackId) {
     const activeTrack = (hub.tracks || []).find((t) => t.id === state.activeTrackId);
@@ -1067,16 +1151,8 @@ function render() {
     state.activeTrackId = null;
   }
 
-  const dest = getEffectiveHomeDest(hub);
   const resultsCount = (hub.results || []).length;
   const activeJobs = hub.activeJobs || [];
-  const tracks = sortTracksByPriority(hub.tracks || []);
-
-  const homePlaceholder = {
-    current: `直接发进左侧正在打开的对话，跟${mainName}接着聊…`,
-    new: `另起一条干净新对话（出现在左侧列表顶部）…`,
-    worker: `把批量整理/查文件的体力活丢给${workerName}后台跑…`,
-  };
 
   root.innerHTML = `
     <div class="page-stack">
@@ -1086,13 +1162,31 @@ function render() {
           <h1>多AI中枢</h1>
         </div>
         <div class="topbar-btns">
-          <button class="soft" id="btn-home-handover" ${state.busy ? 'disabled' : ''} title="一键把当前这条对话落盘换新并自动归档老对话">🔄 换新</button>
-          <button class="${state.openDrawer === 'results' ? 'active-pill' : 'soft'}" data-action="toggle-drawer" data-drawer="results" title="成品与历史文件入口（供 AI 读取）">
-            📦 成品库 ${resultsCount > 0 ? `<span class="count-badge">${resultsCount}</span>` : ''}
-          </button>
+          ${canMsg ? `<button class="soft" id="btn-home-handover" ${state.busy ? 'disabled' : ''} title="一键把当前这条对话落盘换新并自动归档老对话">🔄 换新</button>` : ''}
+          ${resultsCount > 0 ? `
+            <button class="${state.openDrawer === 'results' ? 'active-pill' : 'text-btn'}" data-action="toggle-drawer" data-drawer="results" title="查看后台成品留档">
+              成品 <span class="count-badge">${resultsCount}</span>
+            </button>
+          ` : ''}
           <button class="soft" id="btn-refresh" ${state.busy ? 'disabled' : ''} title="刷新">↻</button>
         </div>
       </div>
+
+      ${state.attachedContextLabel ? `
+        <div class="ctx-banner">
+          <span>📎 已挂到左侧输入框：${esc(state.attachedContextLabel)}</span>
+          <button class="text-btn" data-action="clear-ctx">取消</button>
+        </div>
+      ` : ''}
+
+      ${state.lastSentNote ? `
+        <div class="sent-card">
+          <span>${esc(state.lastSentNote)}</span>
+          <button class="text-btn" data-action="dismiss-sent">知道了</button>
+        </div>
+      ` : ''}
+
+      ${renderReminders(hub)}
 
       ${renderTopDrawer(hub)}
 
@@ -1106,7 +1200,7 @@ function render() {
         `;
       }).join('') : ''}
 
-      <!-- 1. Mainlines First: Instant Calm Overview -->
+      <!-- 1. Mainlines Board -->
       <div class="section-block">
         <div class="sec-head">
           <div class="sec-title">当前主线</div>
@@ -1115,34 +1209,8 @@ function render() {
         ${renderTracks(hub)}
       </div>
 
-      <!-- 2. Unified Single-Layer Composer (Zero Box-in-Box, Zero Repetition) -->
-      <div class="section-block">
-        <div class="sec-head">
-          <div class="sec-title">快捷交代</div>
-        </div>
-        <div class="composer">
-          <textarea id="cmd-input" class="composer-input" placeholder="${esc(homePlaceholder[dest])}">${esc(state.commandText)}</textarea>
-          <div class="composer-foot">
-            <div class="composer-left">
-              ${canMsg ? `<button class="mode-pill ${dest === 'current' ? 'active' : ''}" data-action="set-home-dest" data-dest="current">← 发给${esc(mainName)}</button>` : ''}
-              <button class="mode-pill ${dest === 'new' ? 'active' : ''}" data-action="set-home-dest" data-dest="new">✨ 开新对话</button>
-              ${workerReady ? `<button class="mode-pill ${dest === 'worker' ? 'active' : ''}" data-action="set-home-dest" data-dest="worker">${esc(workerSlot.mounted.icon)} ${esc(workerName)}后台</button>` : ''}
-              <span class="composer-divider"></span>
-              <select id="home-track-select" class="ghost-select" title="可选：归到某条主线下">
-                <option value="">不指定主线</option>
-                ${tracks.map((t) => `<option value="${esc(t.id)}" ${state.homeTrackId === t.id ? 'selected' : ''}>${esc(t.priority)} · ${esc(t.title)}</option>`).join('')}
-              </select>
-            </div>
-            <button class="primary" id="btn-home-submit" ${state.busy ? 'disabled' : ''}>发送</button>
-          </div>
-          ${state.lastSentNote ? `
-            <div class="sent-banner">
-              <span>${esc(state.lastSentNote)}</span>
-              <button class="text-btn" data-action="dismiss-sent">知道了</button>
-            </div>
-          ` : ''}
-        </div>
-      </div>
+      <!-- 2. Fragment Memory Manager -->
+      ${renderMemoriesSection(hub, canCtx)}
 
       <!-- 3. Collapsible Modular Team Config Bar -->
       <div class="section-block">
@@ -1253,31 +1321,79 @@ function bindCommonRenameEvents() {
 }
 
 function bindEvents() {
-  const cmdInput = document.getElementById('cmd-input');
-  cmdInput?.addEventListener('input', (e) => {
-    state.commandText = e.target.value;
-  });
-  cmdInput?.addEventListener('keydown', (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-      e.preventDefault();
-      sendFromHome();
-    }
-  });
-
-  document.querySelectorAll('[data-action="set-home-dest"]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      state.homeDest = btn.dataset.dest || 'current';
-      state.lastSentNote = '';
-      render();
-    });
-  });
-  document.getElementById('home-track-select')?.addEventListener('change', (e) => {
-    state.homeTrackId = e.target.value;
-  });
-  document.getElementById('btn-home-submit')?.addEventListener('click', sendFromHome);
   document.querySelector('[data-action="dismiss-sent"]')?.addEventListener('click', () => {
     state.lastSentNote = '';
     render();
+  });
+  document.querySelector('[data-action="clear-ctx"]')?.addEventListener('click', clearAttachedContext);
+
+  const memInput = document.getElementById('mem-quick-input');
+  memInput?.addEventListener('input', (e) => {
+    state.memoryInputText = e.target.value;
+  });
+  memInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addMemoryItem();
+    }
+  });
+  document.getElementById('btn-add-memory')?.addEventListener('click', addMemoryItem);
+  document.getElementById('btn-tidy-memories')?.addEventListener('click', tidyMemoriesWithWorker);
+  document.getElementById('btn-toggle-done-mem')?.addEventListener('click', () => {
+    state.showDoneMemories = !state.showDoneMemories;
+    render();
+  });
+  document.getElementById('btn-toggle-vault')?.addEventListener('click', () => {
+    state.showVault = !state.showVault;
+    render();
+  });
+  document.getElementById('btn-open-vault')?.addEventListener('click', openLocalVaultFolder);
+  document.getElementById('vault-search-input')?.addEventListener('input', (e) => {
+    state.vaultSearch = e.target.value;
+    const pos = e.target.selectionStart;
+    render();
+    const inp = document.getElementById('vault-search-input');
+    if (inp) {
+      inp.focus();
+      if (pos !== null) inp.setSelectionRange(pos, pos);
+    }
+  });
+  document.querySelectorAll('[data-action="promote-mem"]').forEach((btn) => {
+    btn.addEventListener('click', () => promoteMemoryItem(btn.dataset.memId));
+  });
+  document.querySelectorAll('[data-action="delete-vault"]').forEach((btn) => {
+    btn.addEventListener('click', () => removeVaultItem(btn.dataset.vaultId));
+  });
+  document.querySelectorAll('[data-action="copy-vault"]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const txt = btn.dataset.text || '';
+      try {
+        await navigator.clipboard?.writeText(txt);
+        showToast('📋 已复制到剪贴板');
+      } catch {
+        showToast(txt);
+      }
+    });
+  });
+  document.querySelectorAll('[data-action="apply-tidy"]').forEach((btn) => {
+    btn.addEventListener('click', () => applyTidyProposal(btn.dataset.accept === '1'));
+  });
+  document.querySelectorAll('[data-action="rem-done-mem"]').forEach((btn) => {
+    btn.addEventListener('click', () => toggleMemoryItem(btn.dataset.memId, true));
+  });
+  document.querySelectorAll('[data-action="toggle-mem"]').forEach((btn) => {
+    btn.addEventListener('click', () => toggleMemoryItem(btn.dataset.memId));
+  });
+  document.querySelectorAll('[data-action="delete-mem"]').forEach((btn) => {
+    btn.addEventListener('click', () => removeMemoryItem(btn.dataset.memId));
+  });
+  document.querySelectorAll('[data-action="attach-mem"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const m = (state.hub?.memories || []).find((x) => x.id === btn.dataset.memId);
+      if (!m) return;
+      const ctxText = `【来自多AI记忆总管的碎片记忆】\n内容：${m.text}${m.dueDate ? `\n到期日：${m.dueDate}` : ''}${m.tag ? `\n分类：${m.tag}` : ''}`;
+      attachToNextMessage(m.text.slice(0, 22), ctxText);
+    });
   });
 
   document.getElementById('btn-refresh')?.addEventListener('click', refreshStatus);
@@ -1411,31 +1527,33 @@ function bindDetailEvents(track) {
   bindCommonRenameEvents();
   bindPriorityPickers();
 
-  document.querySelectorAll('[data-action="set-track-dest"]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      state.trackDest = btn.dataset.dest || 'current';
-      state.lastSentNote = '';
-      render();
-    });
-  });
   document.getElementById('chk-archive-old')?.addEventListener('change', (e) => {
     state.archiveOldOnNew = Boolean(e.target.checked);
   });
-  const trackInput = document.getElementById('track-cmd-input');
-  trackInput?.addEventListener('input', (e) => {
+  document.getElementById('btn-attach-track')?.addEventListener('click', () => {
+    const ctxText = [
+      `【来自多AI记忆总管的主线背景】`,
+      `主线：${track.priority} · ${track.title}`,
+      track.goal ? `目标：${track.goal}` : '',
+      track.latest ? `最新进度：${track.latest}` : '',
+      track.next ? `下一步：${track.next}` : '',
+      (track.keyFiles && track.keyFiles.length) ? `关联文件：${track.keyFiles.join('、')}` : '',
+    ].filter(Boolean).join('\n');
+    attachToNextMessage(`${track.priority} · ${track.title}`, ctxText);
+  });
+  document.querySelector('[data-action="clear-ctx"]')?.addEventListener('click', clearAttachedContext);
+  document.getElementById('btn-track-new')?.addEventListener('click', () => openTrackNewConversation(track));
+  const workerInput = document.getElementById('track-worker-input');
+  workerInput?.addEventListener('input', (e) => {
     state.trackInputText = e.target.value;
-    const btn = document.getElementById('btn-track-submit');
-    if (btn && getEffectiveTrackDest(state.hub) === 'new') {
-      btn.textContent = e.target.value.trim() ? '发送' : '一键开新对话';
-    }
   });
-  trackInput?.addEventListener('keydown', (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+  workerInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
       e.preventDefault();
-      handleTrackAction(track);
+      dispatchTrackWorker(track);
     }
   });
-  document.getElementById('btn-track-submit')?.addEventListener('click', () => handleTrackAction(track));
+  document.getElementById('btn-track-worker')?.addEventListener('click', () => dispatchTrackWorker(track));
   document.querySelector('[data-action="dismiss-sent"]')?.addEventListener('click', () => {
     state.lastSentNote = '';
     render();

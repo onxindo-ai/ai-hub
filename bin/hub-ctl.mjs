@@ -35,6 +35,13 @@ export function getHubPaths() {
     tracksPath: path.join(runtimeDir, '主线任务.json'),
     trackOverridesPath: path.join(runtimeDir, '主线目标.json'),
     activeJobsPath: path.join(runtimeDir, '运行中任务.json'),
+    memoriesPath: path.join(runtimeDir, '碎片记忆.json'),
+    memoryTidyPath: path.join(runtimeDir, '碎片整理建议.json'),
+    memoryDigestPath: path.join(runtimeDir, '记忆总管.md'),
+    memoryArchiveMdPath: path.join(runtimeDir, '碎片历史归档.md'),
+    vaultDir: path.join(runtimeDir, '重要记录'),
+    vaultJsonPath: path.join(runtimeDir, '重要记录', '重要记录库.json'),
+    vaultMdPath: path.join(runtimeDir, '重要记录', '账号与重要记录本.md'),
   };
 }
 
@@ -47,7 +54,7 @@ export function expandHome(p) {
 
 export function ensureInitialized() {
   const P = getHubPaths();
-  for (const dir of [P.configDir, P.runtimeDir, P.tasksDir, P.deliveriesDir, P.reviewsDir, P.handoversDir]) {
+  for (const dir of [P.configDir, P.runtimeDir, P.tasksDir, P.deliveriesDir, P.reviewsDir, P.handoversDir, P.vaultDir]) {
     fs.mkdirSync(dir, { recursive: true });
   }
   if (!fs.existsSync(P.configPath) && fs.existsSync(P.exampleConfigPath)) {
@@ -393,10 +400,12 @@ export function loadTracks() {
   const cfg = loadConfig();
   const workspaceRoot = path.resolve(P.hubRoot, cfg.workspaceRoot || '../..');
   let boardTracks = [];
+  let boardUpdatedAt = null;
   if (cfg.boardFile) {
     const bf = path.resolve(workspaceRoot, cfg.boardFile);
     if (fs.existsSync(bf)) {
       try {
+        boardUpdatedAt = formatLocalTime(fs.statSync(bf).mtime);
         boardTracks = parseBoardMarkdown(fs.readFileSync(bf, 'utf8'));
       } catch {
         boardTracks = [];
@@ -429,11 +438,33 @@ export function loadTracks() {
             goal: ov.goal || t.goal,
             latest: ov.latest || t.latest,
             next: ov.next || t.next,
+            updatedAt: ov.updatedAt || t.updatedAt || boardUpdatedAt || null,
             lastConversationId: ov.lastConversationId || t.lastConversationId || null,
           }
-        : { ...t, lastConversationId: t.lastConversationId || null };
+        : { ...t, updatedAt: t.updatedAt || boardUpdatedAt || null, lastConversationId: t.lastConversationId || null };
     })
     .sort((a, b) => priRank(a.priority) - priRank(b.priority));
+}
+
+async function getConversationById(conversationId) {
+  const lsAddr = process.env.ANTIGRAVITY_LS_ADDRESS;
+  const csrf = process.env.ANTIGRAVITY_CSRF_TOKEN;
+  if (!lsAddr || !csrf || !conversationId) return null;
+  try {
+    const res = await fetch(`http://${lsAddr}/product.v1.ConversationService/GetConversation`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Connect-Protocol-Version': '1',
+        'x-antigravity-csrf-token': csrf,
+      },
+      body: JSON.stringify({ conversationId }),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
 }
 
 async function archiveConversationById(conversationId) {
@@ -617,6 +648,7 @@ export function dispatchTaskAsync(opts) {
   ];
   if (opts.noWeb !== false) cliArgs.push('--no-web');
   if (opts.trackId) cliArgs.push('--track-id', opts.trackId);
+  if (opts.kind) cliArgs.push('--kind', opts.kind);
 
   const child = spawn(process.execPath, cliArgs, {
     cwd: P.hubRoot,
@@ -661,6 +693,572 @@ export function recordResult({ title, summary = '', files = [], by = '主力', r
   return { ok: true, item };
 }
 
+// --- Memory Manager (Fragments, Natural Date Parsing, Anti-Forget Checkup & Worker Tidy) ---
+export function formatDateYMD(d = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function addDaysYMD(baseDate, days) {
+  const d = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate() + days);
+  return formatDateYMD(d);
+}
+
+function parseYMDToLocalDate(ymd) {
+  const m = String(ymd || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
+function diffDaysYMD(targetYMD, baseDate = new Date()) {
+  const t = parseYMDToLocalDate(targetYMD);
+  if (!t) return null;
+  const b = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate());
+  return Math.round((t.getTime() - b.getTime()) / (24 * 60 * 60 * 1000));
+}
+
+export function extractDueDateFromText(text, now = new Date()) {
+  const s = String(text || '').trim();
+  if (!s) return null;
+  const pad = (n) => String(n).padStart(2, '0');
+
+  // 1. Explicit YYYY-MM-DD / YYYY/MM/DD / YYYY年M月D日(号)
+  let m = s.match(/\b(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})(?:[日号])?\b/);
+  if (!m) m = s.match(/(20\d{2})年(\d{1,2})月(\d{1,2})[日号]?/);
+  if (m) {
+    const y = Number(m[1]), mo = Number(m[2]), da = Number(m[3]);
+    if (mo >= 1 && mo <= 12 && da >= 1 && da <= 31) {
+      return `${y}-${pad(mo)}-${pad(da)}`;
+    }
+  }
+
+  // 2. Relative keywords
+  if (/(今天|今日|今晚|当天)/.test(s)) return formatDateYMD(now);
+  if (/(大后天)/.test(s)) return addDaysYMD(now, 3);
+  if (/(后天)/.test(s)) return addDaysYMD(now, 2);
+  if (/(明天|明日|明早)/.test(s)) return addDaysYMD(now, 1);
+
+  const relDays = s.match(/(\d{1,3})\s*天[后內内]/);
+  if (relDays) {
+    return addDaysYMD(now, Number(relDays[1]));
+  }
+
+  // 3. Weekday: (下|这|本)?(周|星期)[一二三四五六日天]
+  const wkMap = { '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '日': 0, '天': 0 };
+  const wkMatch = s.match(/(下|这|本)?(?:周|星期)([一二三四五六日天])/);
+  if (wkMatch) {
+    const prefix = wkMatch[1] || '';
+    const targetDow = wkMap[wkMatch[2]];
+    const curDow = now.getDay();
+    let delta = targetDow - curDow;
+    if (prefix === '下') {
+      const daysUntilNextMon = ((8 - curDow) % 7) || 7;
+      const offsetFromMon = targetDow === 0 ? 6 : targetDow - 1;
+      delta = daysUntilNextMon + offsetFromMon;
+    } else if (delta < 0) {
+      delta += 7;
+    }
+    return addDaysYMD(now, delta);
+  }
+
+  // 4. Month + day: 12月1号 / 12月1日 / 12月初 / 12-01 / 12/01
+  let md = s.match(/(\d{1,2})月(\d{1,2})[日号]?/);
+  if (!md) {
+    const chu = s.match(/(\d{1,2})月初/);
+    if (chu) md = [chu[0], chu[1], '1'];
+  }
+  if (!md) {
+    md = s.match(/(?:^|[^\d])(\d{1,2})[-/](\d{1,2})(?:$|[^\d])/);
+  }
+  if (md) {
+    const mo = Number(md[1]);
+    const da = Number(md[2]);
+    if (mo >= 1 && mo <= 12 && da >= 1 && da <= 31) {
+      let y = now.getFullYear();
+      const cand = `${y}-${pad(mo)}-${pad(da)}`;
+      const diff = diffDaysYMD(cand, now);
+      // If more than 30 days in the past, assume next year (e.g., mentioning 4/10 in November)
+      if (diff !== null && diff < -30) y += 1;
+      return `${y}-${pad(mo)}-${pad(da)}`;
+    }
+  }
+
+  return null;
+}
+
+function inferMemoryTag(text, dueDate) {
+  if (dueDate) return '提醒';
+  const s = String(text || '');
+  if (/(拍板|决定|要不要|是否|确认|核对)/.test(s)) return '待拍板';
+  if (/(想法|灵感|以后|点子|可以做|规划)/.test(s)) return '灵感';
+  return '备忘';
+}
+
+export function isImportantRecordText(text) {
+  const s = String(text || '').trim();
+  if (!s) return false;
+  if (/(账号|账户|密码|口令|登录名|用户名|苹果\s*id|apple\s*id|icloud|密保|安全码|银行卡|卡号|恢复密钥|私钥|api\s*key|token|pin码|重要记录|永久保存|长期保存)/i.test(s)) {
+    return true;
+  }
+  if (/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i.test(s) && /(密|pass|pwd|id|账|登|号)/i.test(s)) {
+    return true;
+  }
+  return false;
+}
+
+function inferVaultCategory(text) {
+  const s = String(text || '');
+  if (/(账号|账户|密码|口令|登录|用户名|apple\s*id|苹果\s*id|icloud|邮箱|密保|pin|pass|pwd|token|key)/i.test(s)) {
+    return '账号密码';
+  }
+  return '重要备忘';
+}
+
+export function loadVaultRecords() {
+  const P = ensureInitialized();
+  if (!fs.existsSync(P.vaultJsonPath)) return [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(P.vaultJsonPath, 'utf8'));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function syncVaultMarkdown(list) {
+  const P = ensureInitialized();
+  const byCat = new Map();
+  for (const r of list) {
+    const cat = r.category || '重要备忘';
+    if (!byCat.has(cat)) byCat.set(cat, []);
+    byCat.get(cat).push(r);
+  }
+  const lines = [
+    '# 账号与重要记录本（仅存本机 · 永不上传）',
+    '',
+    `- **更新时间**：${formatLocalTime()}`,
+    `- **存放位置**：\`${P.vaultMdPath}\``,
+    `- **总计条目**：${list.length} 条（永不被临时碎片清理，也不会发给第三方云端模型）`,
+    '',
+  ];
+  if (list.length === 0) {
+    lines.push('- （暂无重要记录）', '');
+  } else {
+    for (const [cat, items] of byCat.entries()) {
+      lines.push(`## ${cat}（${items.length}）`);
+      for (const it of items) {
+        lines.push(`- **[${it.createdAt}]** ${it.text} _（ID: \`${it.id}\`）_`);
+      }
+      lines.push('');
+    }
+  }
+  const tmp = `${P.vaultMdPath}.tmp`;
+  fs.writeFileSync(tmp, lines.join('\n'), 'utf8');
+  fs.renameSync(tmp, P.vaultMdPath);
+}
+
+function saveVaultRecords(list) {
+  const P = ensureInitialized();
+  const tmp = `${P.vaultJsonPath}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(list, null, 2) + '\n', 'utf8');
+  fs.renameSync(tmp, P.vaultJsonPath);
+  syncVaultMarkdown(list);
+}
+
+export function addVaultRecord({ text, category = null, source = 'panel' }) {
+  const cleanText = String(text || '').trim();
+  if (!cleanText) throw new Error('重要记录内容不能为空');
+  const nowStr = formatLocalTime();
+  const item = {
+    id: `VLT-${formatStamp()}-${Math.random().toString(36).slice(2, 6)}`,
+    text: cleanText,
+    category: category ? String(category).trim() : inferVaultCategory(cleanText),
+    source: source || 'panel',
+    createdAt: nowStr,
+    updatedAt: nowStr,
+  };
+  const list = loadVaultRecords();
+  list.unshift(item);
+  saveVaultRecords(list);
+  return { ok: true, routedTo: 'vault', item };
+}
+
+export function deleteVaultRecord(recordId) {
+  const id = String(recordId || '').trim();
+  if (!id) throw new Error('缺少 recordId');
+  const list = loadVaultRecords();
+  const next = list.filter((r) => r.id !== id);
+  if (next.length === list.length) throw new Error(`未找到重要记录: ${id}`);
+  saveVaultRecords(next);
+  return { ok: true, recordId: id };
+}
+
+export function promoteMemoryToVault(memoryId) {
+  const id = String(memoryId || '').trim();
+  if (!id) throw new Error('缺少 memoryId');
+  const list = loadMemories();
+  const hit = list.find((m) => m.id === id);
+  if (!hit) throw new Error(`未找到碎片记忆: ${id}`);
+  const saved = addVaultRecord({ text: hit.text, source: hit.source || 'promoted' });
+  saveMemories(list.filter((m) => m.id !== id));
+  return { ok: true, promotedFrom: id, item: saved.item };
+}
+
+export function openVaultFolder() {
+  const P = ensureInitialized();
+  if (!fs.existsSync(P.vaultMdPath)) {
+    syncVaultMarkdown(loadVaultRecords());
+  }
+  if (process.platform === 'darwin') {
+    spawnSync('open', [P.vaultDir], { encoding: 'utf8' });
+  }
+  return { ok: true, vaultDir: P.vaultDir, vaultMdPath: P.vaultMdPath };
+}
+
+function appendDoneArchive(item) {
+  const P = ensureInitialized();
+  const header = '# 临时碎片历史归档（永久留底）\n\n> 所有被划掉的临时碎片都会自动追加到这里，方便日后检索。\n\n';
+  if (!fs.existsSync(P.memoryArchiveMdPath)) {
+    fs.writeFileSync(P.memoryArchiveMdPath, header, 'utf8');
+  }
+  const line = `- [x] [${item.doneAt || formatLocalTime()}] ${item.text}${item.dueDate ? `（原到期 ${item.dueDate}）` : ''}\n`;
+  fs.appendFileSync(P.memoryArchiveMdPath, line, 'utf8');
+}
+
+export function loadMemories() {
+  const P = ensureInitialized();
+  if (!fs.existsSync(P.memoriesPath)) return [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(P.memoriesPath, 'utf8'));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveMemories(list) {
+  const P = ensureInitialized();
+  const tmp = `${P.memoriesPath}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(list, null, 2) + '\n', 'utf8');
+  fs.renameSync(tmp, P.memoriesPath);
+  syncMemoryDigest(list);
+}
+
+export function loadMemoryTidyProposal() {
+  const P = ensureInitialized();
+  if (!fs.existsSync(P.memoryTidyPath)) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(P.memoryTidyPath, 'utf8'));
+    if (parsed && Array.isArray(parsed.items) && parsed.items.length > 0) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearMemoryTidyProposal() {
+  const P = ensureInitialized();
+  if (fs.existsSync(P.memoryTidyPath)) {
+    try { fs.unlinkSync(P.memoryTidyPath); } catch {}
+  }
+  return { ok: true };
+}
+
+export function computeReminders(tracks = null, memories = null, now = new Date()) {
+  const trkList = tracks || loadTracks();
+  const memList = memories || loadMemories();
+  const alerts = [];
+
+  for (const m of memList) {
+    if (m.done) continue;
+    if (m.dueDate) {
+      const diff = diffDaysYMD(m.dueDate, now);
+      if (diff !== null && diff < 0) {
+        alerts.push({
+          id: `rem-mem-${m.id}`,
+          kind: 'overdue',
+          level: 'danger',
+          targetType: 'memory',
+          targetId: m.id,
+          dueDate: m.dueDate,
+          badge: `已过期 ${Math.abs(diff)} 天`,
+          title: m.text,
+          sortRank: 0 + diff / 1000,
+        });
+      } else if (diff === 0) {
+        alerts.push({
+          id: `rem-mem-${m.id}`,
+          kind: 'due_today',
+          level: 'warn',
+          targetType: 'memory',
+          targetId: m.id,
+          dueDate: m.dueDate,
+          badge: '今天到期',
+          title: m.text,
+          sortRank: 1,
+        });
+      } else if (diff !== null && diff <= 2) {
+        alerts.push({
+          id: `rem-mem-${m.id}`,
+          kind: 'due_soon',
+          level: 'info',
+          targetType: 'memory',
+          targetId: m.id,
+          dueDate: m.dueDate,
+          badge: diff === 1 ? '明天到期' : `${diff} 天后到期`,
+          title: m.text,
+          sortRank: 2 + diff / 10,
+        });
+      }
+    } else if (m.createdAt) {
+      const age = diffDaysYMD(m.createdAt.slice(0, 10), now);
+      if (age !== null && age <= -14) {
+        alerts.push({
+          id: `rem-stale-mem-${m.id}`,
+          kind: 'stale_memory',
+          level: 'muted',
+          targetType: 'memory',
+          targetId: m.id,
+          badge: `搁置 ${Math.abs(age)} 天`,
+          title: m.text,
+          sortRank: 4,
+        });
+      }
+    }
+  }
+
+  for (const t of trkList) {
+    const pri = String(t.priority || '').toUpperCase();
+    if (pri !== 'P0' && pri !== 'P1') continue;
+    if (!t.updatedAt) continue;
+    const age = diffDaysYMD(String(t.updatedAt).slice(0, 10), now);
+    if (age !== null && age <= -7) {
+      alerts.push({
+        id: `rem-stale-trk-${t.id}`,
+        kind: 'stale_track',
+        level: 'warn',
+        targetType: 'track',
+        targetId: t.id,
+        badge: `${Math.abs(age)} 天未更新`,
+        title: `主线「${t.title}」已久未推进，是否忘了跟进？`,
+        sortRank: 3,
+      });
+    }
+  }
+
+  return alerts.sort((a, b) => a.sortRank - b.sortRank);
+}
+
+export function syncMemoryDigest(memoriesOverride = null) {
+  const P = ensureInitialized();
+  const memories = memoriesOverride || loadMemories();
+  const tracks = loadTracks();
+  const reminders = computeReminders(tracks, memories);
+  const active = memories.filter((m) => !m.done);
+  const doneRecent = memories.filter((m) => m.done).slice(0, 8);
+
+  const lines = [
+    '# 多 AI 记忆总管（自动同步）',
+    '',
+    `- **更新时间**：${formatLocalTime()}`,
+    '- **说明**：本文件由多 AI 中枢自动维护，供所有 AI（Antigravity / Claude / Codex / DeepSeek / 手机秘书）共享主线、碎片记忆与防遗忘提醒。',
+    '',
+  ];
+
+  if (reminders.length > 0) {
+    lines.push('## ⏰ 防遗忘提醒');
+    for (const r of reminders) {
+      lines.push(`- **[${r.badge}]** ${r.title}${r.dueDate ? `（${r.dueDate}）` : ''}`);
+    }
+    lines.push('');
+  }
+
+  lines.push('## 📝 当前碎片记忆');
+  if (active.length === 0) {
+    lines.push('- （暂无未完成碎片记忆）');
+  } else {
+    for (const m of active) {
+      const meta = [m.tag, m.dueDate ? `到期 ${m.dueDate}` : ''].filter(Boolean).join(' · ');
+      lines.push(`- [ ] ${m.text}${meta ? ` _（${meta}）_` : ''}`);
+    }
+  }
+  lines.push('');
+
+  lines.push('## 🎯 当前主线概览');
+  for (const t of tracks) {
+    lines.push(`- **${t.priority} · ${t.title}**：${t.next || t.latest || t.goal || ''}`);
+  }
+  lines.push('');
+
+  if (doneRecent.length > 0) {
+    lines.push('## ✅ 最近已划掉');
+    for (const m of doneRecent) {
+      lines.push(`- [x] ${m.text}（完成于 ${m.doneAt || m.updatedAt || ''}）`);
+    }
+    lines.push('');
+  }
+
+  fs.writeFileSync(P.memoryDigestPath, lines.join('\n'), 'utf8');
+  return { ok: true, path: P.memoryDigestPath };
+}
+
+export function addMemory({ text, dueDate = null, tag = null, trackId = null, source = 'panel', forceTemp = false }) {
+  const cleanText = String(text || '').trim();
+  if (!cleanText) throw new Error('记忆内容不能为空');
+  if (!forceTemp && isImportantRecordText(cleanText)) {
+    return addVaultRecord({ text: cleanText, source });
+  }
+  const parsedDue = dueDate ? String(dueDate).trim() : extractDueDateFromText(cleanText);
+  const finalTag = tag ? String(tag).trim() : inferMemoryTag(cleanText, parsedDue);
+  const nowStr = formatLocalTime();
+  const item = {
+    id: `MEM-${formatStamp()}-${Math.random().toString(36).slice(2, 6)}`,
+    text: cleanText,
+    dueDate: parsedDue || null,
+    tag: finalTag,
+    trackId: trackId || null,
+    done: false,
+    doneAt: null,
+    source: source || 'panel',
+    createdAt: nowStr,
+    updatedAt: nowStr,
+  };
+  const list = loadMemories();
+  list.unshift(item);
+  saveMemories(list.slice(0, 120));
+  return { ok: true, routedTo: 'temp', item };
+}
+
+export function toggleMemoryDone(memoryId, forceDone = undefined) {
+  const id = String(memoryId || '').trim();
+  if (!id) throw new Error('缺少 memoryId');
+  const list = loadMemories();
+  const idx = list.findIndex((m) => m.id === id);
+  if (idx < 0) throw new Error(`未找到记忆项: ${id}`);
+  const prevDone = Boolean(list[idx].done);
+  const nextDone = forceDone === undefined ? !prevDone : Boolean(forceDone);
+  const nowStr = formatLocalTime();
+  list[idx] = {
+    ...list[idx],
+    done: nextDone,
+    doneAt: nextDone ? nowStr : null,
+    updatedAt: nowStr,
+  };
+  saveMemories(list);
+  if (!prevDone && nextDone) {
+    appendDoneArchive(list[idx]);
+  }
+  return { ok: true, item: list[idx] };
+}
+
+export function deleteMemory(memoryId) {
+  const id = String(memoryId || '').trim();
+  if (!id) throw new Error('缺少 memoryId');
+  const list = loadMemories();
+  const next = list.filter((m) => m.id !== id);
+  if (next.length === list.length) throw new Error(`未找到记忆项: ${id}`);
+  saveMemories(next);
+  return { ok: true, memoryId: id };
+}
+
+export function startMemoryTidyAsync() {
+  const active = loadMemories().filter((m) => !m.done && !isImportantRecordText(m.text));
+  if (active.length < 2) {
+    throw new Error('当前可整理的普通临时碎片少于 2 条（重要/账号记录自动跳过不外发）');
+  }
+  const compact = active.map((m) => ({
+    text: m.text,
+    dueDate: m.dueDate || null,
+    tag: m.tag || '备忘',
+  }));
+  const prompt = [
+    '你是用户的个人记忆整理助手。请对下面这批碎片记忆做极简整理：',
+    '1. 合并重复或高度相似的条目；',
+    '2. 每条精简到 1 句大白话，保留所有关键数字、日期和动作，严禁丢失重要信息；',
+    '3. 若条目包含日期请保持 YYYY-MM-DD 格式的 dueDate，无日期则 null；tag 从 ["提醒","待拍板","备忘","灵感"] 中选一个；',
+    '4. 必须严格输出一个 ```json ... ``` 代码块，格式如下（不要多余解释）：',
+    '```json',
+    '{',
+    '  "summary": "一句大白话说明合并/精简了什么",',
+    '  "items": [',
+    '    { "text": "精简后的条目", "dueDate": "2026-12-01", "tag": "提醒" }',
+    '  ]',
+    '}',
+    '```',
+    '',
+    '待整理碎片列表：',
+    JSON.stringify(compact, null, 2),
+  ].join('\n');
+
+  return dispatchTaskAsync({
+    title: '碎片记忆整理',
+    prompt,
+    slot: 'worker',
+    mode: 'read-only',
+    noWeb: true,
+    timeout: 120,
+    kind: 'memory-tidy',
+  });
+}
+
+export function applyMemoryTidyProposal() {
+  const proposal = loadMemoryTidyProposal();
+  if (!proposal || !Array.isArray(proposal.items) || proposal.items.length === 0) {
+    throw new Error('当前没有待采纳的整理方案');
+  }
+  const existing = loadMemories();
+  const doneList = existing.filter((m) => m.done);
+  const nowStr = formatLocalTime();
+  const freshActive = proposal.items
+    .map((it) => {
+      const cleanText = String(it?.text || '').trim();
+      if (!cleanText) return null;
+      const parsedDue = it?.dueDate && /^\d{4}-\d{2}-\d{2}$/.test(String(it.dueDate).trim())
+        ? String(it.dueDate).trim()
+        : extractDueDateFromText(cleanText);
+      const finalTag = it?.tag ? String(it.tag).trim() : inferMemoryTag(cleanText, parsedDue);
+      return {
+        id: `MEM-${formatStamp()}-${Math.random().toString(36).slice(2, 6)}`,
+        text: cleanText,
+        dueDate: parsedDue || null,
+        tag: finalTag,
+        trackId: null,
+        done: false,
+        doneAt: null,
+        source: 'worker-tidy',
+        createdAt: nowStr,
+        updatedAt: nowStr,
+      };
+    })
+    .filter(Boolean);
+
+  saveMemories([...freshActive, ...doneList].slice(0, 120));
+  clearMemoryTidyProposal();
+  return { ok: true, count: freshActive.length };
+}
+
+function parseJsonBlock(rawText) {
+  const s = String(rawText || '');
+  const fenced = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced ? fenced[1].trim() : s.trim();
+  try {
+    return JSON.parse(candidate);
+  } catch {
+    const start = candidate.indexOf('{');
+    const end = candidate.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      try {
+        return JSON.parse(candidate.slice(start, end + 1));
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+}
+
 export function getStatus() {
   const P = ensureInitialized();
   const cfg = loadConfig();
@@ -687,10 +1285,15 @@ export function getStatus() {
   const results = loadResults();
   const tracks = loadTracks();
   const activeJobs = loadActiveJobs();
+  const memories = loadMemories();
+  const vaultRecords = loadVaultRecords();
+  const reminders = computeReminders(tracks, memories);
+  const memoryTidyProposal = loadMemoryTidyProposal();
 
   return {
     hubRoot: P.hubRoot,
     workspaceRoot: path.resolve(P.hubRoot, cfg.workspaceRoot || '../..'),
+    vaultDir: P.vaultDir,
     boardFile: cfg.boardFile || '',
     teamTitle: cfg.teamTitle || '班子配置',
     updatedAt: formatLocalTime(),
@@ -699,6 +1302,10 @@ export function getStatus() {
     slots,
     adapters,
     tracks,
+    memories,
+    vaultRecords,
+    reminders,
+    memoryTidyProposal,
     results,
     activeJobs,
     recent: {
@@ -979,7 +1586,26 @@ function extractConclusion(text) {
   return joined.length > 180 ? joined.slice(0, 179) + '…' : joined;
 }
 
-  if (ok) {
+  if (ok && opts.kind === 'memory-tidy') {
+    const parsed = parseJsonBlock(capturedOutput);
+    if (parsed && Array.isArray(parsed.items) && parsed.items.length > 0) {
+      const proposal = {
+        createdAt: formatLocalTime(),
+        by: `${slot.label} · ${adapter.name}`,
+        summary: String(parsed.summary || '已去重并精简碎片记忆').trim(),
+        items: parsed.items
+          .map((it) => ({
+            text: String(it?.text || '').trim(),
+            dueDate: it?.dueDate && /^\d{4}-\d{2}-\d{2}$/.test(String(it.dueDate).trim()) ? String(it.dueDate).trim() : null,
+            tag: String(it?.tag || '备忘').trim(),
+          }))
+          .filter((it) => it.text),
+      };
+      if (proposal.items.length > 0) {
+        fs.writeFileSync(P.memoryTidyPath, JSON.stringify(proposal, null, 2) + '\n', 'utf8');
+      }
+    }
+  } else if (ok) {
     recordResult({
       title,
       summary: extractConclusion(capturedOutput) || cleanMd(capturedOutput).slice(0, 140),
@@ -1168,24 +1794,64 @@ export async function handoverConversation(opts) {
     }
     const created = await res.json();
     const newId = created?.conversation?.id;
-    let archivedOld = false;
-    if (opts.trackId && newId) {
-      const bindRes = await bindTrackConversation({
-        trackId: opts.trackId,
+    const trackId = opts.trackId ? String(opts.trackId).trim() : null;
+    const prevTrackConvId = trackId ? (loadTrackOverrides()[trackId]?.lastConversationId || null) : null;
+
+    if (trackId && newId) {
+      await bindTrackConversation({
+        trackId,
         conversationId: newId,
-        archivePrevious: Boolean(archiveCurrent),
+        archivePrevious: false,
       });
-      if (bindRes.archivedPreviousId) archivedOld = true;
     }
-    if (!archivedOld && archiveCurrent && currentConvId && currentConvId !== newId) {
-      archivedOld = await archiveConversationById(currentConvId);
+
+    const archivedIds = [];
+    let skippedCurrentReason = null;
+    if (archiveCurrent) {
+      const toArchive = new Set();
+      if (!trackId) {
+        if (currentConvId && currentConvId !== newId) toArchive.add(currentConvId);
+      } else {
+        const trackObj = loadTracks().find((t) => t.id === trackId);
+        const rawTrackTitle = String(opts.trackTitle || trackObj?.title || '').trim();
+        const coreTitle = rawTrackTitle.replace(/^P\d+\s*[·・:：\-]\s*/i, '').trim();
+        let isCurrentRelated = true;
+
+        if (currentConvId && currentConvId !== prevTrackConvId && prevTrackConvId && coreTitle) {
+          const curConv = await getConversationById(currentConvId);
+          if (curConv) {
+            const curTitle = String(curConv?.annotations?.title || '');
+            const curSummary = String(curConv?.state?.summary || '');
+            const haystack = `${curTitle}\n${curSummary}`;
+            isCurrentRelated = haystack.includes(coreTitle);
+          }
+        }
+
+        if (isCurrentRelated) {
+          if (currentConvId && currentConvId !== newId) toArchive.add(currentConvId);
+          if (prevTrackConvId && prevTrackConvId !== newId) toArchive.add(prevTrackConvId);
+        } else {
+          if (prevTrackConvId && prevTrackConvId !== newId) toArchive.add(prevTrackConvId);
+          skippedCurrentReason = `当前左侧对话属于其他主线，仅归档「${coreTitle || trackId}」上一条旧对话`;
+        }
+      }
+
+      for (const cid of toArchive) {
+        const ok = await archiveConversationById(cid);
+        if (ok) archivedIds.push(cid);
+      }
     }
+
+    const archivedOld = archivedIds.length > 0;
     return {
       ok: true,
       mode: 'antigravity-auto',
       newConversationId: newId,
       link: newId ? `[👉 点此进入已接棒的新对话：${title}](conversation://${newId})` : null,
       archivedOld,
+      archivedIds,
+      archivedCurrent: Boolean(currentConvId && archivedIds.includes(currentConvId)),
+      ...(skippedCurrentReason ? { skippedCurrentReason } : {}),
       handoverPath,
       handoverRel,
       copyPrompt: initialPrompt,
@@ -1273,6 +1939,7 @@ async function main() {
       noWeb: Boolean(flags['no-web']),
       trackId: flags['track-id'] || null,
       jobId: flags['job-id'] || null,
+      kind: flags.kind || null,
     });
     console.log(JSON.stringify(res, null, 2));
     if (!res.ok) process.exitCode = 1;
@@ -1331,6 +1998,65 @@ async function main() {
     return;
   }
 
+  if (cmd === 'memory') {
+    const sub = pos[1] || 'list';
+    if (sub === 'list') {
+      const memories = loadMemories();
+      const reminders = computeReminders(null, memories);
+      console.log(JSON.stringify({ memories, reminders }, null, 2));
+      return;
+    }
+    if (sub === 'add') {
+      const text = flags.text || pos.slice(2).join(' ');
+      const res = addMemory({
+        text,
+        dueDate: flags.due || null,
+        tag: flags.tag || null,
+        source: flags.source || 'cli',
+        forceTemp: Boolean(flags.temp),
+      });
+      console.log(JSON.stringify(res, null, 2));
+      return;
+    }
+    if (sub === 'done') {
+      const id = pos[2] || flags.id;
+      console.log(JSON.stringify(toggleMemoryDone(id, true), null, 2));
+      return;
+    }
+    if (sub === 'delete') {
+      const id = pos[2] || flags.id;
+      console.log(JSON.stringify(deleteMemory(id), null, 2));
+      return;
+    }
+    if (sub === 'promote') {
+      const id = pos[2] || flags.id;
+      console.log(JSON.stringify(promoteMemoryToVault(id), null, 2));
+      return;
+    }
+  }
+
+  if (cmd === 'vault') {
+    const sub = pos[1] || 'list';
+    if (sub === 'list') {
+      console.log(JSON.stringify(loadVaultRecords(), null, 2));
+      return;
+    }
+    if (sub === 'add') {
+      const text = flags.text || pos.slice(2).join(' ');
+      console.log(JSON.stringify(addVaultRecord({ text, category: flags.category || null, source: flags.source || 'cli' }), null, 2));
+      return;
+    }
+    if (sub === 'delete') {
+      const id = pos[2] || flags.id;
+      console.log(JSON.stringify(deleteVaultRecord(id), null, 2));
+      return;
+    }
+    if (sub === 'open') {
+      console.log(JSON.stringify(openVaultFolder(), null, 2));
+      return;
+    }
+  }
+
   if (cmd === 'handover') {
     const res = await handoverConversation({
       title: flags.title,
@@ -1338,6 +2064,8 @@ async function main() {
       files: flags.files,
       nextSteps: flags.next,
       model: flags.model,
+      trackId: flags['track-id'] || null,
+      trackTitle: flags['track-title'] || null,
       archiveCurrent: flags['no-archive'] ? false : true,
       dryRun: Boolean(flags['dry-run']),
     });

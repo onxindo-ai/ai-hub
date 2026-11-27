@@ -20,6 +20,18 @@ import {
   replyBridgeRequest,
   readRuntimeFile,
   handoverConversation,
+  loadMemories,
+  loadVaultRecords,
+  computeReminders,
+  addMemory,
+  toggleMemoryDone,
+  deleteMemory,
+  promoteMemoryToVault,
+  deleteVaultRecord,
+  openVaultFolder,
+  startMemoryTidyAsync,
+  applyMemoryTidyProposal,
+  clearMemoryTidyProposal,
 } from './hub-ctl.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -245,6 +257,122 @@ const TOOLS = [
     _meta: { ui: { visibility: ['model', 'app'] } },
   },
   {
+    name: 'hub_add_memory',
+    title: '随手记一条碎片记忆或提醒',
+    description: '把用户随口交代的碎片想法、备忘、待拍板或带日期的提醒写入多AI记忆总管（自动识别日期如“12月1号”“明天”“下周五”并同步到 runtime/记忆总管.md）。只要用户在聊天里说“帮我记一下/别忘了/提醒我”，就调用本工具。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: '碎片记忆内容（可含自然语言日期）' },
+        dueDate: { type: 'string', description: '可选明确到期日 YYYY-MM-DD（省略则自动从内容解析）' },
+        tag: { type: 'string', description: '可选分类：提醒 | 待拍板 | 备忘 | 灵感' },
+        trackId: { type: 'string', description: '可选关联主线 ID' },
+        source: { type: 'string', description: '来源：ai | panel | cli' },
+      },
+      required: ['text'],
+    },
+    _meta: { ui: { visibility: ['model', 'app'] } },
+  },
+  {
+    name: 'hub_list_memories',
+    title: '查看碎片记忆与防遗忘提醒',
+    description: '获取当前所有未完成碎片记忆、到期提醒与久未更新主线的防遗忘体检结果。',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    _meta: { ui: { visibility: ['model', 'app'] } },
+  },
+  {
+    name: 'hub_toggle_memory',
+    title: '完成或恢复一条碎片记忆',
+    description: '将某条碎片记忆勾选为已完成或取消完成。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        memoryId: { type: 'string', description: '记忆 ID（MEM-...）' },
+        done: { type: 'boolean', description: '可选：true=完成，false=恢复；省略则翻转' },
+      },
+      required: ['memoryId'],
+    },
+    _meta: { ui: { visibility: ['model', 'app'] } },
+  },
+  {
+    name: 'hub_delete_memory',
+    title: '删除一条碎片记忆（仅面板）',
+    description: '从碎片记忆列表中彻底移除某条记录。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        memoryId: { type: 'string' },
+      },
+      required: ['memoryId'],
+    },
+    _meta: { ui: { visibility: ['app'] } },
+  },
+  {
+    name: 'hub_promote_memory',
+    title: '把临时碎片转存为本地重要记录（仅面板）',
+    description: '把一条临时碎片升级存入本地 runtime/重要记录/（永久保存、不随碎片清理）。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        memoryId: { type: 'string' },
+      },
+      required: ['memoryId'],
+    },
+    _meta: { ui: { visibility: ['app'] } },
+  },
+  {
+    name: 'hub_list_vault',
+    title: '查询本地重要记录本（账号与长期备忘）',
+    description: '当用户主动要求查找之前保存的账号、Apple ID 或重要长期记录时读取本地 runtime/重要记录/。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        keyword: { type: 'string', description: '可选筛选关键词' },
+      },
+    },
+    _meta: { ui: { visibility: ['model', 'app'] } },
+  },
+  {
+    name: 'hub_delete_vault',
+    title: '删除一条本地重要记录（仅面板）',
+    description: '从本地 runtime/重要记录/ 删除指定条目。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        recordId: { type: 'string' },
+      },
+      required: ['recordId'],
+    },
+    _meta: { ui: { visibility: ['app'] } },
+  },
+  {
+    name: 'hub_open_vault',
+    title: '在访达中打开本地重要记录文件夹（仅面板）',
+    description: '直接打开本机 runtime/重要记录/ 文件夹查看或备份文本文件。',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    _meta: { ui: { visibility: ['app'] } },
+  },
+  {
+    name: 'hub_tidy_memories',
+    title: '派黑奴后台整理碎片记忆（仅面板）',
+    description: '把未完成碎片交给后台黑奴（如 DeepSeek）静默去重、精简、归类，生成待采纳方案。',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    _meta: { ui: { visibility: ['app'] } },
+  },
+  {
+    name: 'hub_apply_memory_tidy',
+    title: '采纳或忽略黑奴的碎片整理方案（仅面板）',
+    description: 'accept=true 应用整理方案替换当前未完成碎片；accept=false 忽略并清除该方案。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        accept: { type: 'boolean', description: 'true=采纳，false=忽略' },
+      },
+      required: ['accept'],
+    },
+    _meta: { ui: { visibility: ['app'] } },
+  },
+  {
     name: 'hub_read_runtime_file',
     title: '读取运行态文件（仅面板）',
     description: '仅供面板前端预览任务单、交付件、审核单或交接单全文，不占用模型上下文。',
@@ -446,6 +574,107 @@ async function handleToolCall(name, args = {}) {
       return {
         content: [{ type: 'text', text: `✅ 已将大白话结论回传给手机秘书（单号 ${res.requestId}）` }],
         structuredContent: res,
+      };
+    }
+    if (name === 'hub_add_memory') {
+      const res = addMemory({
+        text: args.text,
+        dueDate: args.dueDate || null,
+        tag: args.tag || null,
+        trackId: args.trackId || null,
+        source: args.source || 'ai',
+      });
+      const st = getStatus();
+      const msg = res.routedTo === 'vault'
+        ? `📌 识别为重要记录，已永久存进本机「runtime/重要记录/账号与重要记录本.md」（不外发、不清理）：${res.item.text}`
+        : `✅ 已记入临时碎片：${res.item.text}${res.item.dueDate ? `（自动识别到期日 ${res.item.dueDate}）` : ''}`;
+      return {
+        content: [{ type: 'text', text: msg }],
+        structuredContent: { result: res, status: st },
+      };
+    }
+    if (name === 'hub_promote_memory') {
+      const res = promoteMemoryToVault(args.memoryId);
+      const st = getStatus();
+      return {
+        content: [{ type: 'text', text: `📌 已转存进本机重要记录本：${res.item.text}` }],
+        structuredContent: { result: res, status: st },
+      };
+    }
+    if (name === 'hub_list_vault') {
+      const kw = String(args.keyword || '').trim().toLowerCase();
+      const all = loadVaultRecords();
+      const hits = kw ? all.filter((r) => `${r.text} ${r.category}`.toLowerCase().includes(kw)) : all;
+      const text = hits.length === 0
+        ? '本地重要记录本中暂无匹配条目。'
+        : hits.map((r) => `- [${r.category}] ${r.text}（${r.createdAt}）`).join('\n');
+      return {
+        content: [{ type: 'text', text }],
+        structuredContent: { records: hits },
+      };
+    }
+    if (name === 'hub_delete_vault') {
+      const res = deleteVaultRecord(args.recordId);
+      const st = getStatus();
+      return {
+        content: [{ type: 'text', text: '已删除该条重要记录' }],
+        structuredContent: { result: res, status: st },
+      };
+    }
+    if (name === 'hub_open_vault') {
+      const res = openVaultFolder();
+      return {
+        content: [{ type: 'text', text: `已打开本地文件夹：${res.vaultDir}` }],
+        structuredContent: res,
+      };
+    }
+    if (name === 'hub_list_memories') {
+      const memories = loadMemories();
+      const reminders = computeReminders(null, memories);
+      const active = memories.filter((m) => !m.done);
+      const lines = [];
+      if (reminders.length > 0) {
+        lines.push('【⏰ 防遗忘提醒】');
+        for (const r of reminders) lines.push(`- [${r.badge}] ${r.title}`);
+      }
+      lines.push(`【📝 未完成碎片 (${active.length})】`);
+      if (active.length === 0) lines.push('- （暂无）');
+      else for (const m of active) lines.push(`- [${m.id}] ${m.text}${m.dueDate ? `（到期 ${m.dueDate}）` : ''}`);
+      return {
+        content: [{ type: 'text', text: lines.join('\n') }],
+        structuredContent: { memories, reminders },
+      };
+    }
+    if (name === 'hub_toggle_memory') {
+      const res = toggleMemoryDone(args.memoryId, args.done);
+      const st = getStatus();
+      return {
+        content: [{ type: 'text', text: res.item.done ? `✅ 已划掉：${res.item.text}` : `↩️ 已恢复：${res.item.text}` }],
+        structuredContent: { result: res, status: st },
+      };
+    }
+    if (name === 'hub_delete_memory') {
+      const res = deleteMemory(args.memoryId);
+      const st = getStatus();
+      return {
+        content: [{ type: 'text', text: '已删除该碎片记忆' }],
+        structuredContent: { result: res, status: st },
+      };
+    }
+    if (name === 'hub_tidy_memories') {
+      const res = startMemoryTidyAsync();
+      const st = getStatus();
+      return {
+        content: [{ type: 'text', text: `🐳 已派 ${res.job.adapterName} 在后台整理碎片记忆，稍后在面板一键采纳。` }],
+        structuredContent: { result: res, status: st },
+      };
+    }
+    if (name === 'hub_apply_memory_tidy') {
+      const res = args.accept ? applyMemoryTidyProposal() : clearMemoryTidyProposal();
+      const st = getStatus();
+      return {
+        content: [{ type: 'text', text: args.accept ? `✅ 已采纳整理方案（保留 ${res.count} 条精炼记忆）` : '已忽略本次整理方案' }],
+        structuredContent: { result: res, status: st },
       };
     }
     if (name === 'hub_read_runtime_file') {

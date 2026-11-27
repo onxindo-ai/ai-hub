@@ -51,7 +51,7 @@
 前置要求：本机安装 **Node.js 18+**，按需安装你想插进槽位的 AI CLI（如 DeepSeek、Codex、Claude、Gemini 等）。
 
 ```bash
-git clone https://github.com/suer-ai/xiangdaosmfasm.git ai-hub
+git clone https://github.com/onxindo-ai/ai-hub.git ai-hub
 cd ai-hub
 chmod +x install.sh
 ./install.sh                     # 安装 Antigravity 插件与一屏可视化面板

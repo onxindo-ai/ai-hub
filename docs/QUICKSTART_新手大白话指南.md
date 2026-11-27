@@ -30,7 +30,7 @@
 打开终端（或者直接让你的 AI 帮你执行）：
 
 ```bash
-git clone https://github.com/suer-ai/xiangdaosmfasm.git ai-hub
+git clone https://github.com/onxindo-ai/ai-hub.git ai-hub
 cd ai-hub
 chmod +x install.sh
 ./install.sh

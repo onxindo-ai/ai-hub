@@ -61,7 +61,7 @@ node "<HUB_ROOT>/bin/hub-ctl.mjs" slot set secretary none
 
 ```bash
 node "<HUB_ROOT>/bin/hub-ctl.mjs" handover \
-  --title "<续接主题>" \
+  --title "主线对话 ✅" \
   --summary "<2-3句阶段总结>" \
   --files "事情总表.md,<关键文件>" \
   --next "<下一步动作>"

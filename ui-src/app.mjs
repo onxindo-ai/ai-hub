@@ -302,7 +302,7 @@ async function handoverCurrentChat() {
         role: 'user',
         content: [{
           type: 'text',
-          text: `${mainName}，请帮我把当前这条对话一键无感换新：先把刚才的结论和进度落盘，再调用 hub-ctl.mjs handover 创建接棒新对话并自动归档本条老对话，把新对话入口链接发给我。`,
+          text: `${mainName}，请帮我把当前这条对话一键无感换新：先把刚才的结论和进度落盘，再调用 hub-ctl.mjs handover（标题固定为「主线对话 ✅」）创建接棒新对话并自动归档本条老对话，把新对话入口链接发给我。`,
         }],
       });
       state.lastSentNote = `🔄 已让左侧${mainName}落盘进度、建接棒新对话并自动归档老对话。`;
@@ -314,7 +314,7 @@ async function handoverCurrentChat() {
     }
   }
   const res = await callTool('hub_handover_conversation', {
-    title: `${mainName} · 续接对话`,
+    title: '主线对话 ✅',
     summary: '承接上一阶段已落盘的进度。',
     files: '事情总表.md,协作与工具/多AI中枢/runtime/进度简报.md',
     nextSteps: '先读最新进度，告诉我当前重点和下一步。',
@@ -447,7 +447,7 @@ async function openTrackNewConversation(track) {
 
   if (wantArchive && canMsg) {
     try {
-      const title = `${track.title} · 续接`;
+      const title = track.title;
       const summary = track.latest || track.status || track.goal || track.title;
       const nextSteps = track.next || `继续推进主线「${track.title}」`;
       await app.sendMessage({
